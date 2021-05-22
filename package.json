@@ -7,7 +7,7 @@
     "main": "node ./main.js"
   },
   "dependencies": {
-    "@solana/web3.js": "^0.46.0",
+    "@solana/web3.js": "^0.46.0"
   },
   "author": "hanako mumei",
   "license": "MIT"
