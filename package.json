@@ -1,0 +1,14 @@
+{
+  "name": "blog-testbed",
+  "version": "0.1.0",
+  "description": "im doing my best",
+  "main": "main.js",
+  "scripts": {
+    "main": "node ./main.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^0.46.0",
+  },
+  "author": "hanako mumei",
+  "license": "MIT"
+}
