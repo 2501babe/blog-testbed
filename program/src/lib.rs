@@ -1,18 +1,23 @@
+use std::collections::HashMap;
+use std::mem::*;
+use uuid::*;
+use serde::{Serialize, Deserialize};
 use solana_program::{
     account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
+    clock::*, program_error::*, system_instruction::*, pubkey::*,
 };
-use std::collections::HashMap;
-use uuid::*;
-use solana_program::clock::*;
-use solana_program::program_error::*;
 
-solana_program::declare_id!("HanaYv11111111111111111111111111111111111111");
+//solana_program::declare_id!("HanaYv11111111111111111111111111111111111111");
 
 const V5NAMESPACE: &Uuid = &Uuid::from_bytes([16, 92, 30, 120, 224, 152, 10, 207, 140, 56, 246, 228, 206, 99, 196, 138]);
-const CREATE_USER: u8 = 1;
-const UPDATE_USER: u8 = 2;
-const CREATE_POST: u8 = 3;
-const UPDATE_POST: u8 = 4;
+
+const INIT_PROGRAM: u8 = 10;
+const CREATE_USER: u8 = 20;
+const UPDATE_USER: u8 = 30;
+const CREATE_POST: u8 = 40;
+const UPDATE_POST: u8 = 50;
+
+const SWITCHBOARD_SEED: &[&[u8]] = &["SWITCHBOARD".as_bytes()];
 
 /*
   program api
@@ -102,7 +107,16 @@ const UPDATE_POST: u8 = 4;
 
 type StringMap = HashMap<String, String>;
 
-struct User {
+#[derive(Serialize, Deserialize, Debug)]
+struct Switchboard {
+    treasury: Pubkey,
+    username_wallet: Pubkey,
+    wallet_userdata: Pubkey,
+    wallet_postids: Pubkey,
+    postid_postdata: Pubkey,
+}
+
+struct UserData {
     wallet: Pubkey,
     username: String,
     created: UnixTimestamp,
@@ -113,8 +127,23 @@ struct PostData {
     id: Uuid,
     title: String,
     uri: String,
+    text: Pubkey,
     created: UnixTimestamp,
     updated: UnixTimestamp,
+}
+
+fn init_program(
+    program_id: &Pubkey,
+    payer: &AccountInfo,
+) -> ProgramResult {
+    msg!("init program!");
+
+    let switch_addr = Pubkey::find_program_address(SWITCHBOARD_SEED, program_id).0;
+    msg!("addr: {:?} {:?}", switch_addr, switch_addr.to_string());
+    let ixn = create_account(payer.key, &switch_addr, 0, 2048, program_id);
+    msg!("ixn: {:?}", ixn);
+
+    Ok(())
 }
 
 fn create_user(
@@ -148,7 +177,7 @@ fn process_instruction(
         instruction_data
     );
 
-    Ok(())
+    init_program(program_id, &accounts[0])
 
 /*
     match instruction_data[0] {

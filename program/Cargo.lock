@@ -242,6 +242,7 @@ name = "bpf-program-template"
 version = "0.1.0"
 dependencies = [
  "assert_matches",
+ "serde",
  "serde_json",
  "solana-program",
  "solana-program-test",

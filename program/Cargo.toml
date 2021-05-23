@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 solana-program = "1.6.7"
+serde = { version = "1.0.*", features = ["derive"] }
 serde_json = "1.0.*"
 uuid = { version = "0.8.*", features = ["serde", "v5"] }
 

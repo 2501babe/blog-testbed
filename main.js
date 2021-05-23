@@ -18,7 +18,7 @@ const main = {
         return conn;
     },
 
-    getWallet: async (conn) => {
+    wallet: async (conn) => {
         let privkey = await fs.readFile(KEYFILE).catch(() => null);
         let wallet = new w3.Account(privkey);
 
@@ -61,14 +61,18 @@ const api = {
 };
 
 (async () => {
+    // debauched solweb3 devs use an async sha256 so this cant be a toplevel constant
+    let switchboard = (await w3.PublicKey.findProgramAddress([Buffer.from("SWITCHBOARD")], PROGRAM_ID))[0];
+
     console.log("establishing connection");
     let conn = main.connect(NETWORK);
 
     console.log("loading wallet");
-    let wallet = await main.getWallet(conn);
+    let wallet = await main.wallet(conn);
 
     console.log("pinging chain");
     await api.ping(conn, wallet);
+
 
     return 0;
 })();
