@@ -36,11 +36,18 @@ const main = {
 // rust api
 const api = {
 
-    ping: async (conn, wallet) => {
+    ping: async (conn, wallet, switchboard) => {
         let data = Buffer.from("ping!", "utf8");
 
+        let keys = [
+            {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
+            {pubkey: switchboard, isSigner: false, isWritable: true},
+            {pubkey: PROGRAM_ID, isSigner: false, isWritable: false},
+            {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
+        ];
+
         let ixn = new w3.TransactionInstruction({
-            keys: [{pubkey: wallet.publicKey, isSigner: true, isWritable: true}],
+            keys: keys,
             programId: PROGRAM_ID,
             data: data,
         });
@@ -51,7 +58,7 @@ const api = {
             conn,
             txn,
             [wallet],
-            {commitment: "processed", preflightCommitment: "processed", skipPreflight: false},
+            {commitment: "processed", preflightCommitment: "processed", skipPreflight: true},
         );
 
         console.log("res:", res);
@@ -71,7 +78,7 @@ const api = {
     let wallet = await main.wallet(conn);
 
     console.log("pinging chain");
-    await api.ping(conn, wallet);
+    await api.ping(conn, wallet, switchboard);
 
 
     return 0;

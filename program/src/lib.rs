@@ -4,7 +4,7 @@ use uuid::*;
 use serde::{Serialize, Deserialize};
 use solana_program::{
     account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
-    clock::*, program_error::*, system_instruction::*, pubkey::*,
+    clock::*, program_error::*, system_instruction::*, pubkey::*, program::*,
 };
 
 //solana_program::declare_id!("HanaYv11111111111111111111111111111111111111");
@@ -132,16 +132,24 @@ struct PostData {
     updated: UnixTimestamp,
 }
 
+// set up initial pointer account and hashmap accounts
 fn init_program(
     program_id: &Pubkey,
-    payer: &AccountInfo,
+    accounts: &[AccountInfo],
 ) -> ProgramResult {
     msg!("init program!");
 
-    let switch_addr = Pubkey::find_program_address(SWITCHBOARD_SEED, program_id).0;
-    msg!("addr: {:?} {:?}", switch_addr, switch_addr.to_string());
-    let ixn = create_account(payer.key, &switch_addr, 0, 2048, program_id);
-    msg!("ixn: {:?}", ixn);
+    // XXX i need to like, get account info for these stupid fucking things
+    let (switch_addr, switch_seed_ctr) = Pubkey::find_program_address(SWITCHBOARD_SEED, program_id);
+    let borrow_pls = [switch_seed_ctr];
+    let switch_seed = &[&["SWITCHBOARD".as_bytes(), &borrow_pls][..]];
+    msg!("addr: {:?} {:?} {:?}", switch_addr, switch_addr.to_string(), switch_seed);
+    let ix = create_account(accounts[0].key, &switch_addr, 0, 2048, program_id);
+    msg!("ix: {:?}", ix);
+    let accounts2 = [accounts].concat();
+    msg!("accounts: {:?}", accounts2);
+    let res = invoke_signed(&ix, &accounts2, switch_seed);
+    msg!("res: {:?}", res);
 
     Ok(())
 }
@@ -177,7 +185,7 @@ fn process_instruction(
         instruction_data
     );
 
-    init_program(program_id, &accounts[0])
+    init_program(program_id, accounts)
 
 /*
     match instruction_data[0] {
