@@ -3,254 +3,127 @@ use std::mem::*;
 use uuid::*;
 use serde::{Serialize, Deserialize};
 use solana_program::{
-    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
+    account_info::*, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
     clock::*, program_error::*, system_instruction::*, pubkey::*, program::*,
 };
 
-//solana_program::declare_id!("HanaYv11111111111111111111111111111111111111");
+const USERNAME_WALLETS_SEED: &[u8] = "USERNAME_WALLETS".as_bytes();
+const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 
-const V5NAMESPACE: &Uuid = &Uuid::from_bytes([16, 92, 30, 120, 224, 152, 10, 207, 140, 56, 246, 228, 206, 99, 196, 138]);
-
-const INIT_PROGRAM: u8 = 10;
-const CREATE_USER: u8 = 20;
-const UPDATE_USER: u8 = 30;
-const CREATE_POST: u8 = 40;
-const UPDATE_POST: u8 = 50;
-
-const SWITCHBOARD_SEED: &[&[u8]] = &["SWITCHBOARD".as_bytes()];
-
-/*
-  program api
-  - create account
-  - update account info
-  - create post and metadata
-  - update post and metadata
-  for now posts are utf8. validate later. allow and validate markdown later
-  eventually id like some kind of drafts system
-  dont worry about rellocation for now, probably abstract over it later
-
-  client queries
-  - get account info by pubkey
-  - get pubkey by username
-  - get post and metadata by id
-  - get list of all post metadata by pubkey
-  these go directly from js to jsonrpc node
-  getAccountInfo, getMultipleAccounts, getProgramAccounts
-
-  data structures
-  - hashmap: username -> account pubkey
-  - hashmap: account pubkey -> account info
-  - hashmap: account pubkey -> all post metadata
-  - hashmap: post uuid -> post address
-  i thought of having a post id be an account address but it would need to be a pointer
-  which is kind of useless if i need to traverse it doing some tricky shit anyway?
-  account -> all posts data (includes id and address)
-  and then from there i can fetch text for posts i care about
-  or if i have id then id -> address wait hold on fuck
-  aaargh most of these need to be 
-  OK STOP THINK. post is utf8. metadata is a json blob
-  account info is a json blob. all these thisngs acn go in their own indiv accounts
-  then we need mappings
-  * username -> wallet pubkey
-  * wallet pubkey -> userdata address
-  * wallet pubkey -> head of post metadata linked list
-  * post uri -> post id
-  * post id -> post text address
-  skip username and uri for now. we also need
-  * permanent address containing all hashmap addresses
-  on startup we fetch that address, then fetch the hashmaps
-  these are just all json ig idk. define in rust and use serde or whatever
-
-  i dunno if post id should be an account address or not
-  it would need to be a pointer if so. i should prolly use a uuid
-  i dont know if its possible to get entropy onchain. could just make client submit one
-  ooh we could generate a v5 uuid (shasum) from the transaction signature tho
-
-  data will need to be realloced somehow as they grow
-  - user passes in one permanent address containing addresses of program accounts
-    program reinvokes itself with whichever accounts it needs
-  - client continuously fetches list of accounts that it may need
-    presumably as a structured data thing so it can selectively submit only those it needs
-  - everything stored in one big buffer, client holds a pointer to it
-    very simple to realloc but still need to traverse pointer
-
-  ok no i got it, heres how adding to hashmaps should work
-  - load map, decode
-  - add item to it
-  - encode
-  - charge user for the space diff, store in program controlled account
-  - if it fits in the account just store it
-  - if it doesnt fit then create a new account, store it there
-    store the new account address in the previous account
-    deallocate the previous previous account
-  thus we avoid (most?) race conditions
-  if a client has a stale address, uhh oh wait annoying we cant just load it
-  because of the stupid prefetcher. we would need to recurse
-  it would be simple tho, no signature even needed
-  program issues the same instruction but splices in a different account
-  itd also be a good way to do upgrades if we change the data model, simple redirect
-  dont worry about all this now tho
-
-  OK COOL WE GOOD WHAT are my next steps
-  - define my structs and hashmaps including json transforms
-  - write a program init function to set up necessary accounts
-  - write create/update account/post program functions 
-  - write client get functions
-
-  aaaaa ok this is so confusing how does the interface even work
-  i have four things i wanna do. create user, update user, create post, update post
-  create user takes a desired username plus whatever else stuff
-  it seems message doesnt implicitly pass in th e calling account
-  i need the calling account to be mutable and signed for
-  its pubkey goes in the userdata and i need to credit their account
-*/
-
-type StringMap = HashMap<String, String>;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Switchboard {
-    treasury: Pubkey,
-    username_wallet: Pubkey,
-    wallet_userdata: Pubkey,
-    wallet_postids: Pubkey,
-    postid_postdata: Pubkey,
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct UsernameWallets {
+    username_wallets: HashMap<String, Pubkey>,
 }
 
-struct UserData {
-    wallet: Pubkey,
-    username: String,
-    created: UnixTimestamp,
-    updated: UnixTimestamp,
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct WalletUserData {
+    wallet_userdata: HashMap<Pubkey, Pubkey>,
 }
 
-struct PostData {
-    id: Uuid,
-    title: String,
-    uri: String,
-    text: Pubkey,
-    created: UnixTimestamp,
-    updated: UnixTimestamp,
+#[repr(C)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+enum ProgramInstruction {
+    // set up data structs and shit
+    // 0: paypig
+    // 1: system program
+    // 2: rent sysvar
+    // 3: usernames -> wallets
+    // 4: wallets -> userdatas
+    Initialize,
+
+    // create a new user
+    // 0: wallet
+    // 1: system program
+    // 2: clock sysvar
+    // 3: usernames -> wallets
+    // 4: wallets -> userdatas
+    // 5: fresh userdata address
+    CreateUser {
+        username: String,
+    },
+
+    // create a new post
+    // 0: wallet
+    // 1: system program
+    // 2: clock sysvar
+    // 3: usernames -> wallets
+    // 4: wallets -> userdatas
+    // 5: fresh postdata address
+    // 6: fresh post address
+    CreatePost {
+        title: String,
+        text: String,
+    },
 }
 
-// set up initial pointer account and hashmap accounts
-fn init_program(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-) -> ProgramResult {
-    msg!("init program!");
+impl ProgramInstruction {
+    pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
+        if input.len() == 0 {
+            return Err(ProgramError::InvalidInstructionData);
+        }
 
-    // XXX i need to like, get account info for these stupid fucking things
-    let (switch_addr, switch_seed_ctr) = Pubkey::find_program_address(SWITCHBOARD_SEED, program_id);
-    let borrow_pls = [switch_seed_ctr];
-    let switch_seed = &[&["SWITCHBOARD".as_bytes(), &borrow_pls][..]];
-    msg!("addr: {:?} {:?} {:?}", switch_addr, switch_addr.to_string(), switch_seed);
-    let ix = create_account(accounts[0].key, &switch_addr, 0, 2048, program_id);
-    msg!("ix: {:?}", ix);
-    let accounts2 = [accounts].concat();
-    msg!("accounts: {:?}", accounts2);
-    let res = invoke_signed(&ix, &accounts2, switch_seed);
-    msg!("res: {:?}", res);
-
-    Ok(())
-}
-
-fn create_user(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    instruction_data: &[u8],
-) -> ProgramResult {
-    msg!("create user! {:?}", instruction_data);
-    Ok(())
-}
-
-fn create_post(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    instruction_data: &[u8],
-) -> ProgramResult {
-    msg!("create post! {:?}", instruction_data);
-    Ok(())
-}
-
-entrypoint!(process_instruction);
-fn process_instruction(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    instruction_data: &[u8],
-) -> ProgramResult {
-    msg!(
-        "process_instruction: {}: {} accounts, data={:?}",
-        program_id,
-        accounts.len(),
-        instruction_data
-    );
-
-    init_program(program_id, accounts)
-
-/*
-    match instruction_data[0] {
-        CREATE_USER => create_user(program_id, accounts, &instruction_data[1..]),
-        CREATE_POST => create_post(program_id, accounts, &instruction_data[1..]),
-        _ => Err(ProgramError::InvalidInstructionData),
+        Ok(match input[0] {
+            0 => Self::Initialize,
+            _ => return Err(ProgramError::InvalidInstructionData),
+        })
     }
-*/
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+fn create_hashmap(
+    accounts: &[AccountInfo],
+    payer_key: &Pubkey,
+    this_key: &Pubkey,
+    sys_key: &Pubkey,
+    dest: &AccountInfo,
+    seedword: &[u8],
+) -> ProgramResult {
+    let (addr, ctr) = Pubkey::find_program_address(&[seedword], this_key);
+    let borrow_pls = [ctr];
 
-    #[test]
-    fn hana_zone() {
-        println!("HANA DEV TEST ZONE\n----\n");
+    if addr != *dest.key { return Err(ProgramError::InvalidAccountData); }
+    if !dest.data_is_empty() { return Err(ProgramError::AccountAlreadyInitialized); }
 
-        let json_ex = r#"{ "name": "hana", "job": "troublemaker" }"#;
-        let mut hmap = serde_json::from_str::<StringMap>(json_ex).unwrap();
+    let seed = &[&[seedword, &borrow_pls][..]];
+    let ix = create_account(payer_key, &addr, 0, 0x2000, this_key);
 
-        println!("hmap initial: {:?}", hmap);
+    invoke_signed(&ix, accounts, seed)
 
-        hmap.insert("location".to_string(), "the internet".to_string());
+    // TODO next i need to figure out how to write data lolz
+    // make sure i can load and store the hashmaps
+}
 
-        println!("hmap post: {:?}", hmap);
+// set up base data structures
+fn initialize_program(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
 
-        let post_id = Uuid::new_v5(V5NAMESPACE, "hello".as_bytes());
-        println!("uuid: {:?}", post_id);
+    let payer = next_account_info(account_info_iter)?;
+    let sys = next_account_info(account_info_iter)?;
+    let rent = next_account_info(account_info_iter)?;
+    let user_wallets = next_account_info(account_info_iter)?;
+    let wallet_users = next_account_info(account_info_iter)?;
 
-    }
+    create_hashmap(accounts, payer.key, program_id, sys.key, user_wallets, USERNAME_WALLETS_SEED)?;
+    create_hashmap(accounts, payer.key, program_id, sys.key, wallet_users, WALLET_USERDATA_SEED)?;
 
-    /*
-    use {
-        super::*,
-        assert_matches::*,
-        solana_program::instruction::{AccountMeta, Instruction},
-        solana_program_test::*,
-        solana_sdk::{signature::Signer, transaction::Transaction},
+    Ok(())
+}
+
+entrypoint!(dispatch);
+fn dispatch(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    let insn = ProgramInstruction::unpack(instruction_data)?;
+    msg!("HANA insn: {:?}", insn);
+
+    match insn {
+        ProgramInstruction::Initialize => initialize_program(accounts, program_id),
+        _ => panic!("fix me"),
     };
 
-    #[tokio::test]
-    async fn test_transaction() {
-        let program_id = Pubkey::new_unique();
-
-        let (mut banks_client, payer, recent_blockhash) = ProgramTest::new(
-            "bpf_program_template",
-            program_id,
-            processor!(process_instruction),
-        )
-        .start()
-        .await;
-
-        let mut transaction = Transaction::new_with_payer(
-            &[Instruction {
-                program_id,
-                accounts: vec![AccountMeta::new(payer.pubkey(), false)],
-                data: vec![1, 2, 3],
-            }],
-            Some(&payer.pubkey()),
-        );
-        transaction.sign(&[&payer], recent_blockhash);
-
-        assert_matches!(banks_client.process_transaction(transaction).await, Ok(()));
-    }
-    */
-    
+    Ok(())
 }
