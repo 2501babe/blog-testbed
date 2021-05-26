@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::mem::*;
 use uuid::*;
 use serde::{Serialize, Deserialize};
@@ -11,13 +11,16 @@ const USERNAME_WALLETS_SEED: &[u8] = "USERNAME_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-struct UsernameWallets {
-    username_wallets: HashMap<String, Pubkey>,
+struct UsernameWallets(BTreeMap<String, Pubkey>);
+impl UsernameWallets {
+    fn new() -> UsernameWallets {
+        UsernameWallets(BTreeMap::new())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct WalletUserData {
-    wallet_userdata: HashMap<Pubkey, Pubkey>,
+    wallet_userdata: BTreeMap<Pubkey, Pubkey>,
 }
 
 #[repr(C)]
@@ -55,7 +58,6 @@ enum ProgramInstruction {
         text: String,
     },
 }
-
 impl ProgramInstruction {
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
         if input.len() == 0 {
@@ -69,13 +71,14 @@ impl ProgramInstruction {
     }
 }
 
-fn create_hashmap(
+fn alloc_account(
     accounts: &[AccountInfo],
     payer_key: &Pubkey,
     this_key: &Pubkey,
     sys_key: &Pubkey,
     dest: &AccountInfo,
     seedword: &[u8],
+    size: u64,
 ) -> ProgramResult {
     let (addr, ctr) = Pubkey::find_program_address(&[seedword], this_key);
     let borrow_pls = [ctr];
@@ -84,12 +87,9 @@ fn create_hashmap(
     if !dest.data_is_empty() { return Err(ProgramError::AccountAlreadyInitialized); }
 
     let seed = &[&[seedword, &borrow_pls][..]];
-    let ix = create_account(payer_key, &addr, 0, 0x2000, this_key);
+    let ix = create_account(payer_key, &addr, 0, size, this_key);
 
     invoke_signed(&ix, accounts, seed)
-
-    // TODO next i need to figure out how to write data lolz
-    // make sure i can load and store the hashmaps
 }
 
 // set up base data structures
@@ -105,8 +105,18 @@ fn initialize_program(
     let user_wallets = next_account_info(account_info_iter)?;
     let wallet_users = next_account_info(account_info_iter)?;
 
-    create_hashmap(accounts, payer.key, program_id, sys.key, user_wallets, USERNAME_WALLETS_SEED)?;
-    create_hashmap(accounts, payer.key, program_id, sys.key, wallet_users, WALLET_USERDATA_SEED)?;
+    alloc_account(accounts, payer.key, program_id, sys.key, user_wallets, USERNAME_WALLETS_SEED, 0x2000)?;
+    alloc_account(accounts, payer.key, program_id, sys.key, wallet_users, WALLET_USERDATA_SEED, 0x2000)?;
+
+    let mut uw_dat = user_wallets.try_borrow_mut_data()?;
+    msg!("HANA new hmap...");
+    let mut uw_map = UsernameWallets::new();
+    uw_map.0.insert("hana".to_string(), *payer.key);
+    msg!("HANA bmap: {:?}", uw_map);
+    let map_txt = serde_json::to_string(&uw_map).unwrap();
+    msg!("HANA bmap text: {:?}", map_txt);
+    let map_again: Result<UsernameWallets, serde_json::Error> = serde_json::from_str(&map_txt);
+    msg!("HANA bmap once again: {:?}", map_again);
 
     Ok(())
 }
