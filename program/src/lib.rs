@@ -12,7 +12,7 @@ const USERNAME_WALLETS_SEED: &[u8] = "USERNAME_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct UsernameWallets(BTreeMap<String, Pubkey>);
 impl UsernameWallets {
     fn new() -> UsernameWallets {
@@ -20,11 +20,29 @@ impl UsernameWallets {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct WalletUserData(BTreeMap<Pubkey, Pubkey>);
 impl WalletUserData {
     fn new() -> WalletUserData {
         WalletUserData(BTreeMap::new())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Username(String);
+impl Username {
+    fn new(name: &str) -> Result<Username, ProgramError> {
+        let chars = name.chars();
+
+        if name.len() > 0
+        && name.len() < 32
+        && name.is_ascii()
+        && name.chars().nth(0).unwrap().is_alphabetic()
+        && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Ok(Username(name.to_string()));
+        } else {
+            return Err(ProgramError::InvalidArgument);
+        }
     }
 }
 
@@ -47,7 +65,7 @@ enum ProgramInstruction {
     // 4: wallets -> userdatas
     // 5: fresh userdata address
     CreateUser {
-        username: String,
+        username: Username,
     },
 
     // create a new post
@@ -136,5 +154,22 @@ fn dispatch(
     match insn {
         ProgramInstruction::Initialize => initialize_program(accounts, program_id),
         _ => panic!("fix me"),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn usernames() {
+        assert!(Username::new("").is_err());
+        assert!(Username::new("_").is_err());
+        assert!(Username::new("___").is_err());
+        assert!(Username::new("1").is_err());
+        assert!(Username::new("123").is_err());
+        assert!(Username::new("a").is_ok());
+        assert!(Username::new("A").is_ok());
+        assert!(Username::new("sajhdASDJSA123____").is_ok());
     }
 }
