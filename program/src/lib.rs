@@ -107,7 +107,7 @@ fn alloc_account(
 
     let seed = &[&[seedword, &borrow_pls][..]];
     let rent = rentier.minimum_balance(size as usize);
-    let ix = create_account(payer.key, &addr, 0, size, program_id);
+    let ix = create_account(payer.key, &addr, rent, size, program_id);
 
     msg!("allocating {}", addr);
     invoke_signed(&ix, accounts, seed)
@@ -138,7 +138,12 @@ fn initialize_program(
     Ok(())
 }
 
-
+fn create_user(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+    username: &Username,
+) -> ProgramResult {
+}
 
 entrypoint!(dispatch);
 fn dispatch(

@@ -11,6 +11,8 @@ const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H7
 const SKIP_PREFLIGHT = true;
 const LAMPS = 1000000000;
 
+const username_regex = /^[a-zA-Z][a-zA-Z0-9_]{0,30}$/;
+
 // basic program shit
 const main = {
 
@@ -37,7 +39,7 @@ const main = {
 // rust api
 const api = {
 
-    // { "Initialize": null }
+    // {"Initialize": null}
     initialize: async (conn, wallet, userWallets, walletUserData) => {
         let data = Buffer.from('{"Initialize": null}', "utf8");
 
@@ -45,8 +47,6 @@ const api = {
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
-            //{pubkey: PROGRAM_ID, isSigner: false, isWritable: false},
-            //{pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: userWallets, isSigner: false, isWritable: true},
             {pubkey: walletUserData, isSigner: false, isWritable: true},
         ];
@@ -70,6 +70,44 @@ const api = {
         return res;
     },
 
+    // {"CreateUser": {"username": STRING}}
+    createUser: async (conn, wallet, userWallets, walletUserData, username) => {
+        // XXX idk how js is supposed to handle errors like this
+        if(!username.match(username_regex)) {
+            console.log("bad username:", username);
+            return;
+        }
+
+        let data = Buffer.from(`{"CreateUser": {"username": "${username}"}}`, "utf8");
+
+        let keys = [
+            {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
+            {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: userWallets, isSigner: false, isWritable: true},
+            {pubkey: walletUserData, isSigner: false, isWritable: true},
+            // XXX user account here
+        ];
+
+        let ixn = new w3.TransactionInstruction({
+            keys: keys,
+            programId: PROGRAM_ID,
+            data: data,
+        });
+
+        let txn = new w3.Transaction().add(ixn);
+
+        let res = await w3.sendAndConfirmTransaction(
+            conn,
+            txn,
+            [wallet],
+            {commitment: "processed", preflightCommitment: "processed", skipPreflight: SKIP_PREFLIGHT},
+        );
+
+        console.log("create user res:", res);
+        return res;
+    },
+
 };
 
 (async () => {
@@ -85,7 +123,6 @@ const api = {
 
     console.log("initializing chain storage");
     await api.initialize(conn, wallet, userWallets, walletUserData);
-
 
     return 0;
 })();
