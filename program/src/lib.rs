@@ -5,10 +5,12 @@ use serde::{Serialize, Deserialize};
 use solana_program::{
     account_info::*, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
     clock::*, program_error::*, system_instruction::*, pubkey::*, program::*,
+    sysvar::rent::*, sysvar::Sysvar,
 };
 
 const USERNAME_WALLETS_SEED: &[u8] = "USERNAME_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
+const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct UsernameWallets(BTreeMap<String, Pubkey>);
@@ -19,8 +21,11 @@ impl UsernameWallets {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-struct WalletUserData {
-    wallet_userdata: BTreeMap<Pubkey, Pubkey>,
+struct WalletUserData(BTreeMap<Pubkey, Pubkey>);
+impl WalletUserData {
+    fn new() -> WalletUserData {
+        WalletUserData(BTreeMap::new())
+    }
 }
 
 #[repr(C)]
@@ -73,22 +78,24 @@ impl ProgramInstruction {
 
 fn alloc_account(
     accounts: &[AccountInfo],
-    payer_key: &Pubkey,
-    this_key: &Pubkey,
-    sys_key: &Pubkey,
+    program_id: &Pubkey,
+    payer: &AccountInfo,
+    rentier: &Rent,
     dest: &AccountInfo,
     seedword: &[u8],
     size: u64,
 ) -> ProgramResult {
-    let (addr, ctr) = Pubkey::find_program_address(&[seedword], this_key);
+    let (addr, ctr) = Pubkey::find_program_address(&[seedword], program_id);
     let borrow_pls = [ctr];
 
     if addr != *dest.key { return Err(ProgramError::InvalidAccountData); }
     if !dest.data_is_empty() { return Err(ProgramError::AccountAlreadyInitialized); }
 
     let seed = &[&[seedword, &borrow_pls][..]];
-    let ix = create_account(payer_key, &addr, 0, size, this_key);
+    let rent = rentier.minimum_balance(size as usize);
+    let ix = create_account(payer.key, &addr, 0, size, program_id);
 
+    msg!("allocating {}", addr);
     invoke_signed(&ix, accounts, seed)
 }
 
@@ -101,22 +108,18 @@ fn initialize_program(
 
     let payer = next_account_info(account_info_iter)?;
     let sys = next_account_info(account_info_iter)?;
-    let rent = next_account_info(account_info_iter)?;
+    let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
     let user_wallets = next_account_info(account_info_iter)?;
     let wallet_users = next_account_info(account_info_iter)?;
 
-    alloc_account(accounts, payer.key, program_id, sys.key, user_wallets, USERNAME_WALLETS_SEED, 0x2000)?;
-    alloc_account(accounts, payer.key, program_id, sys.key, wallet_users, WALLET_USERDATA_SEED, 0x2000)?;
+    alloc_account(accounts, program_id, payer, rentier, user_wallets, USERNAME_WALLETS_SEED, HASHMAP_INITIAL_SIZE)?;
+    alloc_account(accounts, program_id, payer, rentier, wallet_users, WALLET_USERDATA_SEED, HASHMAP_INITIAL_SIZE)?;
 
-    let mut uw_dat = user_wallets.try_borrow_mut_data()?;
-    msg!("HANA new hmap...");
-    let mut uw_map = UsernameWallets::new();
-    uw_map.0.insert("hana".to_string(), *payer.key);
-    msg!("HANA bmap: {:?}", uw_map);
-    let map_txt = serde_json::to_string(&uw_map).unwrap();
-    msg!("HANA bmap text: {:?}", map_txt);
-    let map_again: Result<UsernameWallets, serde_json::Error> = serde_json::from_str(&map_txt);
-    msg!("HANA bmap once again: {:?}", map_again);
+    let mut uw_data = user_wallets.try_borrow_mut_data()?;
+    uw_data[0..2].copy_from_slice("{}".as_bytes());
+
+    let mut wu_data = wallet_users.try_borrow_mut_data()?;
+    wu_data[0..2].copy_from_slice("{}".as_bytes());
 
     Ok(())
 }
@@ -133,7 +136,5 @@ fn dispatch(
     match insn {
         ProgramInstruction::Initialize => initialize_program(accounts, program_id),
         _ => panic!("fix me"),
-    };
-
-    Ok(())
+    }
 }
