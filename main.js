@@ -8,6 +8,7 @@ const path = require("path");
 const KEYFILE = "testwallet.bin";
 const NETWORK = "http://fortuna:8899";
 const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H79");
+const SKIP_PREFLIGHT = true;
 const LAMPS = 1000000000;
 
 // basic program shit
@@ -36,8 +37,9 @@ const main = {
 // rust api
 const api = {
 
-    ping: async (conn, wallet, userWallets, walletUserData) => {
-        let data = Buffer.from("\0", "utf8");
+    // { "Initialize": null }
+    initialize: async (conn, wallet, userWallets, walletUserData) => {
+        let data = Buffer.from('{"Initialize": null}', "utf8");
 
         let keys = [
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
@@ -61,10 +63,10 @@ const api = {
             conn,
             txn,
             [wallet],
-            {commitment: "processed", preflightCommitment: "processed", skipPreflight: true},
+            {commitment: "processed", preflightCommitment: "processed", skipPreflight: SKIP_PREFLIGHT},
         );
 
-        console.log("res:", res);
+        console.log("initialize res:", res);
         return res;
     },
 
@@ -81,8 +83,8 @@ const api = {
     console.log("loading wallet");
     let wallet = await main.wallet(conn);
 
-    console.log("pinging chain");
-    await api.ping(conn, wallet, userWallets, walletUserData);
+    console.log("initializing chain storage");
+    await api.initialize(conn, wallet, userWallets, walletUserData);
 
 
     return 0;

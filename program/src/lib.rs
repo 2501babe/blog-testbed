@@ -83,14 +83,10 @@ enum ProgramInstruction {
 }
 impl ProgramInstruction {
     pub fn unpack(input: &[u8]) -> Result<Self, ProgramError> {
-        if input.len() == 0 {
-            return Err(ProgramError::InvalidInstructionData);
+        match serde_json::from_slice(input) {
+            Ok(s) => Ok(s),
+            Err(_) => Err(ProgramError::InvalidInstructionData),
         }
-
-        Ok(match input[0] {
-            0 => Self::Initialize,
-            _ => return Err(ProgramError::InvalidInstructionData),
-        })
     }
 }
 
@@ -142,6 +138,8 @@ fn initialize_program(
     Ok(())
 }
 
+
+
 entrypoint!(dispatch);
 fn dispatch(
     program_id: &Pubkey,
@@ -171,5 +169,16 @@ mod test {
         assert!(Username::new("a").is_ok());
         assert!(Username::new("A").is_ok());
         assert!(Username::new("sajhdASDJSA123____").is_ok());
+    }
+
+    #[test]
+    fn deserialize() {
+        let init_insn = r#"{ "Initialize": null}"#;
+        let init_deser: Result<ProgramInstruction, serde_json::Error> = serde_json::from_str(init_insn);
+        assert!(init_deser.is_ok());
+
+        let mkuser_insn = r#"{ "CreateUser": { "username": "hana" }}"#;
+        let mkuser_deser: Result<ProgramInstruction, serde_json::Error> = serde_json::from_str(mkuser_insn);
+        assert!(mkuser_deser.is_ok());
     }
 }
