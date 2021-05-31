@@ -11,31 +11,53 @@ use solana_program::{
 const USERNAME_WALLETS_SEED: &[u8] = "USERNAME_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
+const USERNAME_MAX_LEN: u64 = 32;
 
+// XXX i tink the impl for these can be a trait? no ^c^v
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct UsernameWallets(BTreeMap<String, Pubkey>);
+struct UsernameWallets(BTreeMap<Username, Pubkey>);
 impl UsernameWallets {
-    fn new() -> UsernameWallets {
+    fn new() -> Self {
         UsernameWallets(BTreeMap::new())
+    }
+
+    fn from_account_info(account_info: &AccountInfo) -> Result<Self, ProgramError> {
+        let buf = &account_info.data.borrow();
+        let nul = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+
+        match serde_json::from_slice(&buf[0..nul]) {
+            Ok(s) => Ok(s),
+            Err(_) => Err(ProgramError::InvalidInstructionData),
+        }
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WalletUserData(BTreeMap<Pubkey, Pubkey>);
 impl WalletUserData {
-    fn new() -> WalletUserData {
+    fn new() -> Self {
         WalletUserData(BTreeMap::new())
+    }
+
+    fn from_account_info(account_info: &AccountInfo) -> Result<Self, ProgramError> {
+        let buf = &account_info.data.borrow();
+        let nul = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+
+        match serde_json::from_slice(&buf[0..nul]) {
+            Ok(s) => Ok(s),
+            Err(_) => Err(ProgramError::InvalidInstructionData),
+        }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct Username(String);
 impl Username {
-    fn new(name: &str) -> Result<Username, ProgramError> {
+    fn new(name: &str) -> Result<Self, ProgramError> {
         let chars = name.chars();
 
         if name.len() > 0
-        && name.len() < 32
+        && name.len() <= USERNAME_MAX_LEN as usize
         && name.is_ascii()
         && name.chars().nth(0).unwrap().is_alphabetic()
         && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
@@ -44,6 +66,30 @@ impl Username {
             return Err(ProgramError::InvalidArgument);
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct UserData {
+    wallet: Pubkey,
+    username: Username,
+    created: UnixTimestamp,
+    updated: UnixTimestamp,
+    posts: Vec<PostData>,
+}
+impl UserData {
+    fn new(wallet: &Pubkey, username: &Username, ts: UnixTimestamp) -> Self {
+        UserData { wallet: *wallet, username: username.clone(), created: ts, updated: ts, posts: [].to_vec() }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct PostData {
+    id: Uuid,
+    title: String,
+    uri: String,
+    created: UnixTimestamp,
+    updated: UnixTimestamp,
+    post: Pubkey,
 }
 
 #[repr(C)]
@@ -123,17 +169,21 @@ fn initialize_program(
     let payer = next_account_info(account_info_iter)?;
     let sys = next_account_info(account_info_iter)?;
     let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
-    let user_wallets = next_account_info(account_info_iter)?;
-    let wallet_users = next_account_info(account_info_iter)?;
+    let user_wallets_acct = next_account_info(account_info_iter)?;
+    let wallet_users_acct = next_account_info(account_info_iter)?;
 
-    alloc_account(accounts, program_id, payer, rentier, user_wallets, USERNAME_WALLETS_SEED, HASHMAP_INITIAL_SIZE)?;
-    alloc_account(accounts, program_id, payer, rentier, wallet_users, WALLET_USERDATA_SEED, HASHMAP_INITIAL_SIZE)?;
+    // alloc and init two program derived accounts for metadata mappings
+    // these will autofail if the accounts already exist or if the provided addresses differ
+    alloc_account(accounts, program_id, payer, rentier, user_wallets_acct, USERNAME_WALLETS_SEED, HASHMAP_INITIAL_SIZE)?;
+    alloc_account(accounts, program_id, payer, rentier, wallet_users_acct, WALLET_USERDATA_SEED, HASHMAP_INITIAL_SIZE)?;
 
-    let mut uw_data = user_wallets.try_borrow_mut_data()?;
-    uw_data[0..2].copy_from_slice("{}".as_bytes());
+    // usernames to wallet addresses
+    let mut user_wallets = user_wallets_acct.try_borrow_mut_data()?;
+    user_wallets[0..2].copy_from_slice("{}".as_bytes());
 
-    let mut wu_data = wallet_users.try_borrow_mut_data()?;
-    wu_data[0..2].copy_from_slice("{}".as_bytes());
+    // wallet addresses to userdata addresses
+    let mut wallet_users = wallet_users_acct.try_borrow_mut_data()?;
+    wallet_users[0..2].copy_from_slice("{}".as_bytes());
 
     Ok(())
 }
@@ -143,6 +193,44 @@ fn create_user(
     program_id: &Pubkey,
     username: &Username,
 ) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+
+    msg!("HANA next accounts");
+    let payer = next_account_info(account_info_iter)?;
+    let sys = next_account_info(account_info_iter)?;
+    let clock = &Clock::from_account_info(next_account_info(account_info_iter)?)?;
+    let user_wallets_acct = next_account_info(account_info_iter)?;
+    let wallet_users_acct = next_account_info(account_info_iter)?;
+    let userdata_acct = next_account_info(account_info_iter)?;
+
+    msg!("HANA from account info1");
+    let user_wallets = UsernameWallets::from_account_info(user_wallets_acct)?;
+    msg!("HANA from account info2");
+    let wallet_users = WalletUserData::from_account_info(wallet_users_acct)?;
+
+    // XXX is there a way to return non shit errors?
+    if user_wallets.0.contains_key(username) {
+        msg!("HANA username taken: {:?}", username);
+        return Err(ProgramError::InvalidArgument);
+    }
+
+    if wallet_users.0.contains_key(payer.key) {
+        msg!("HANA user already exists: {:?}", payer.key);
+        return Err(ProgramError::AccountAlreadyInitialized);
+    }
+
+    msg!("HANA create account");
+    // XXX idk how big to make this but it ought to be reallocable
+    let ix = create_account(payer.key, userdata_acct.key, 0, 0x1000, program_id);
+    msg!("HANA invoke");
+    invoke(&ix, accounts)?;
+
+    msg!("HANA borro");
+    let mut userdata = userdata_acct.try_borrow_mut_data()?;
+    let userdata_struct = UserData::new(payer.key, username, 0);
+    msg!("HANA userdata: {:?}", userdata_struct);
+
+    Ok(())
 }
 
 entrypoint!(dispatch);
@@ -156,6 +244,7 @@ fn dispatch(
 
     match insn {
         ProgramInstruction::Initialize => initialize_program(accounts, program_id),
+        ProgramInstruction::CreateUser{username} => create_user(accounts, program_id, &username),
         _ => panic!("fix me"),
     }
 }

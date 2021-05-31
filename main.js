@@ -11,7 +11,7 @@ const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H7
 const SKIP_PREFLIGHT = true;
 const LAMPS = 1000000000;
 
-const username_regex = /^[a-zA-Z][a-zA-Z0-9_]{0,30}$/;
+const username_regex = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 
 // basic program shit
 const main = {
@@ -79,6 +79,7 @@ const api = {
         }
 
         let data = Buffer.from(`{"CreateUser": {"username": "${username}"}}`, "utf8");
+        let userAccount = new w3.Account();
 
         let keys = [
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
@@ -86,7 +87,7 @@ const api = {
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: userWallets, isSigner: false, isWritable: true},
             {pubkey: walletUserData, isSigner: false, isWritable: true},
-            // XXX user account here
+            {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},
         ];
 
         let ixn = new w3.TransactionInstruction({
@@ -100,7 +101,7 @@ const api = {
         let res = await w3.sendAndConfirmTransaction(
             conn,
             txn,
-            [wallet],
+            [wallet, userAccount],
             {commitment: "processed", preflightCommitment: "processed", skipPreflight: SKIP_PREFLIGHT},
         );
 
@@ -121,8 +122,11 @@ const api = {
     console.log("loading wallet");
     let wallet = await main.wallet(conn);
 
-    console.log("initializing chain storage");
-    await api.initialize(conn, wallet, userWallets, walletUserData);
+    //console.log("initializing chain storage");
+    //await api.initialize(conn, wallet, userWallets, walletUserData);
+
+    console.log("creating user");
+    await api.createUser(conn, wallet, userWallets, walletUserData, "hana");
 
     return 0;
 })();
