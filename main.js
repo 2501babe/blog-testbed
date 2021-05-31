@@ -51,6 +51,9 @@ const api = {
             {pubkey: walletUserData, isSigner: false, isWritable: true},
         ];
 
+        console.log("initialize as", wallet.publicKey.toString(),
+                    "for", userWallets.toString(), "/", walletUserData.toString());
+
         let ixn = new w3.TransactionInstruction({
             keys: keys,
             programId: PROGRAM_ID,
@@ -84,6 +87,7 @@ const api = {
         let keys = [
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: userWallets, isSigner: false, isWritable: true},
             {pubkey: walletUserData, isSigner: false, isWritable: true},
