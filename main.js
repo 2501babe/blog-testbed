@@ -5,13 +5,21 @@ const fs = require("fs").promises;
 const path = require("path");
 
 // constants
+const LAMPS = 1000000000;
 const KEYFILE = "testwallet.bin";
 const NETWORK = "http://fortuna:8899";
 const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H79");
+
+// for debug these should be processed (faster) and true (actually test the server)
+// but in prod we prolly want finalized and false
+const COMMITMENT = "processed";
 const SKIP_PREFLIGHT = true;
-const LAMPS = 1000000000;
 
 const username_regex = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+
+// debauched solweb3 devs use an async sha256 so these cant be toplevel constants
+var usernameWalletAddr;
+var walletUserDataAddr;
 
 // basic program shit
 const main = {
@@ -36,23 +44,35 @@ const main = {
 
 };
 
+// jsonrpc api
+const get = {
+
+    // XXX there is probably a less stupid way to do this
+    struct: async (conn, addr) => {
+        let acct = await conn.getAccountInfo(addr, COMMITMENT);
+        let str = acct ? acct.data.toString().split("\0").shift() : "";
+        return str.length > 0 ? JSON.parse(str) : {};
+    },
+
+}
+
 // rust api
-const api = {
+const post = {
 
     // {"Initialize": null}
-    initialize: async (conn, wallet, userWallets, walletUserData) => {
+    initialize: async (conn, wallet) => {
         let data = Buffer.from('{"Initialize": null}', "utf8");
 
         let keys = [
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
-            {pubkey: userWallets, isSigner: false, isWritable: true},
-            {pubkey: walletUserData, isSigner: false, isWritable: true},
+            {pubkey: usernameWalletAddr, isSigner: false, isWritable: true},
+            {pubkey: walletUserDataAddr, isSigner: false, isWritable: true},
         ];
 
         console.log("initialize as", wallet.publicKey.toString(),
-                    "for", userWallets.toString(), "/", walletUserData.toString());
+                    "for", usernameWalletAddr.toString(), "/", walletUserDataAddr.toString());
 
         let ixn = new w3.TransactionInstruction({
             keys: keys,
@@ -66,7 +86,7 @@ const api = {
             conn,
             txn,
             [wallet],
-            {commitment: "processed", preflightCommitment: "processed", skipPreflight: SKIP_PREFLIGHT},
+            {commitment: COMMITMENT, preflightCommitment: COMMITMENT, skipPreflight: SKIP_PREFLIGHT},
         );
 
         console.log("initialize res:", res);
@@ -74,7 +94,7 @@ const api = {
     },
 
     // {"CreateUser": {"username": STRING}}
-    createUser: async (conn, wallet, userWallets, walletUserData, username) => {
+    createUser: async (conn, wallet, username) => {
         // XXX idk how js is supposed to handle errors like this
         if(!username.match(username_regex)) {
             console.log("bad username:", username);
@@ -89,8 +109,8 @@ const api = {
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
-            {pubkey: userWallets, isSigner: false, isWritable: true},
-            {pubkey: walletUserData, isSigner: false, isWritable: true},
+            {pubkey: usernameWalletAddr, isSigner: false, isWritable: true},
+            {pubkey: walletUserDataAddr, isSigner: false, isWritable: true},
             {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},
         ];
 
@@ -116,9 +136,9 @@ const api = {
 };
 
 (async () => {
-    // debauched solweb3 devs use an async sha256 so this cant be a toplevel constant
-    let userWallets = (await w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID))[0];
-    let walletUserData = (await w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID))[0];
+    // init these globals
+    usernameWalletAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID))[0];
+    walletUserDataAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID))[0];
 
     console.log("establishing connection");
     let conn = main.connect(NETWORK);
@@ -126,11 +146,22 @@ const api = {
     console.log("loading wallet");
     let wallet = await main.wallet(conn);
 
-    //console.log("initializing chain storage");
-    //await api.initialize(conn, wallet, userWallets, walletUserData);
+    // maps from username to pubkey and pubkey to userdata address
+    console.log("loading data");
+    let userWallets = await get.struct(conn, usernameWalletAddr);
+    let walletUsers = await get.struct(conn, walletUserDataAddr);
 
-    console.log("creating user");
-    await api.createUser(conn, wallet, userWallets, walletUserData, "hana");
+    // get userdata if it exists
+    let userDataAddr = walletUsers[wallet.publicKey.toString()];
+    console.log("userdataaddr:", new w3.PublicKey(userDataAddr).toString());
+    let user = userDataAddr ? await get.struct(conn, new w3.PublicKey(userDataAddr)) : null;
+    console.log("user:", user);
+
+    //console.log("initializing chain storage");
+    //await post.initialize(conn, wallet);
+
+    //console.log("creating user");
+    //await post.createUser(conn, wallet, "hana");
 
     return 0;
 })();
