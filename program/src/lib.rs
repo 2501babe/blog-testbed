@@ -267,9 +267,8 @@ fn create_user(
 
     // build userdata and store in account
     let ts = clock.unix_timestamp;
-    let mut userdata = userdata_acct.try_borrow_mut_data()?;
     let userdata_struct = UserData::new(payer.key, username, ts);
-    userdata_struct.store(&userdata_acct);
+    userdata_struct.store(&userdata_acct)?;
 
     // XXX make insert a method that returns a program result mb
     // add references to our metadata maps
