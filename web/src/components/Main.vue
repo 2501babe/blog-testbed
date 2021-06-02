@@ -5,13 +5,16 @@
   <div v-else class="provider">
     <button @click="connectProvider()">connect</button>
   </div>
-  <div>
-    <h1>{{ msg }}</h1>
-    <p>i love to blog</p>
-    <p>{{ msg2 }}</p>
-    <button v-on:click="reverseMsg">reverse</button>
-    <p>{{ msg3 }}</p>
-    <input v-model="msg3"/>
+  <h1>navy</h1>
+  <div v-if="providerConnected">
+    <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
+    <br/>
+    <button>put it on the internet forever</button>
+  </div>
+  <div v-else>
+    <p>do you love to blog?</p>
+    <p>do you know wtf "solana" is??</p>
+    <p>wow youre so smart howd you find this site!!</p>
   </div>
 </template>
 
@@ -31,14 +34,11 @@ export default {
       connectKey: 0,
       provider: null,
       providerConnected: false,
-      msg2: "hey whats up",
-      msg3: "ok cool"
     }
   },
   computed: {
   },
   props: {
-    msg: String
   },
   methods: {
     async connectProvider() {

@@ -1,5 +1,5 @@
 <template>
-  <Main msg="navy"/>
+  <Main/>
 </template>
 
 <script>
@@ -74,11 +74,6 @@ export default {
   name: 'App',
   components: {
     Main
-  },
-  data() {
-    return {
-      loltest: "hey whats up",
-    }
   },
 }
 </script>
