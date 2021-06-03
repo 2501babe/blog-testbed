@@ -13,21 +13,18 @@
       user: {{ prettyKey() }}
     </span>
     <span v-else>
-      <button @click="connectProvider()">connect</button>
+      <button :disabled="!provider" @click="connectProvider()">connect</button>
     </span>
   </div>
 
   <h1 class="cozy center">navy</h1>
 
-  <!-- tink ima make this a sidebar instead -->
-  <!--div class="navbar">
-    <a>home</a>
-    <a>idk</a>
-    <a>something</a>
-  </div-->
-
   <div v-if="providerConnected" class="funbox">
-    <div>left bar</div>
+    <div class="sidebar">
+      <a>home</a>
+      <a>idk</a>
+      <a>something</a>
+    </div>
 
     <div>
       <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
@@ -37,7 +34,7 @@
 
     <div>right bar</div>
   </div>
-  <div v-else>
+  <div v-else class="center">
     <p>do you love to blog?</p>
     <p>do you know wtf "solana" is??</p>
     <p>wow youre so smart howd you find this site!!</p>
@@ -51,19 +48,23 @@
 export default {
   name: 'Main',
   mounted() {
-    let vm = this;
+    let vm = window.main = this;
 
-    // capture the component so we can set ~reactive~ bits on it when page loads
-    // FIXME this is kind of fucky but i cant figure out a better way
-    // the ~reactive~ shit cant watch window variables so it all feels really brittle
-    window.addEventListener("load", function() {
-        vm.provider = window.solana;
-        vm.providerConnected = window.solana.isConnected;
-    });
+    /// this is evil but i havent found a better way
+    // even waiting until the page loads doesnt guarantee window.solana will be set
+    // and there is no good way to monitor isConnected since connect resolves before actually connecting
+    setInterval(() => {
+        if(!vm.provider) {
+            vm.provider = window.solana;
+        }
+
+        if(window.solana && vm.providerConnected != window.solana.isConnected) {
+            vm.providerConnected = window.solana.isConnected;
+        }
+    }, 200);
   },
   data() {
     return {
-      connectKey: 0,
       provider: null,
       providerConnected: false,
       selectedNetwork: "fortuna",
@@ -87,11 +88,7 @@ export default {
             return;
         }
 
-        // FIXME if the user has to input their password this returns immediately
-        // i could spinlock here but god would kill me and we cant detect if they reject the prompt anyway
         await vm.provider.connect();
-        console.log("connected??", window.solana.isConnected);
-        vm.providerConnected = true;
     },
     reverseMsg() {
       this.msg2 = this.msg2.split("").reverse().join("");
@@ -105,18 +102,16 @@ export default {
 }
 </script>
 
-<!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
-.navbar {
-    margin: 1em;
-    display: flex;
-    justify-content: space-around;
-}
-
 .funbox {
     margin: 1em;
     display: flex;
-    justify-content: space-around;
+    justify-content: space-evenly;
+}
+
+.sidebar {
+    display: flex;
+    flex-direction: column;
 }
 
 .cozy  {
