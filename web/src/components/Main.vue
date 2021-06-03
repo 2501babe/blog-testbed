@@ -1,21 +1,48 @@
 <template>
-  <div v-if="providerConnected" class="provider">
-    <p>user: {{ prettyKey() }}</p>
+
+  <div class="cozy right">
+    <select v-model="selectedNetwork">
+      <option>mainnet</option>
+      <option>testnet</option>
+      <option>devnet</option>
+      <option>localhost</option>
+      <option>fortuna</option>
+    </select>
+
+    <span v-if="providerConnected">
+      user: {{ prettyKey() }}
+    </span>
+    <span v-else>
+      <button @click="connectProvider()">connect</button>
+    </span>
   </div>
-  <div v-else class="provider">
-    <button @click="connectProvider()">connect</button>
-  </div>
-  <h1>navy</h1>
-  <div v-if="providerConnected">
-    <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
-    <br/>
-    <button>put it on the internet forever</button>
+
+  <h1 class="cozy center">navy</h1>
+
+  <!-- tink ima make this a sidebar instead -->
+  <!--div class="navbar">
+    <a>home</a>
+    <a>idk</a>
+    <a>something</a>
+  </div-->
+
+  <div v-if="providerConnected" class="funbox">
+    <div>left bar</div>
+
+    <div>
+      <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
+      <br/>
+      <button>put it on the internet forever</button>
+    </div>
+
+    <div>right bar</div>
   </div>
   <div v-else>
     <p>do you love to blog?</p>
     <p>do you know wtf "solana" is??</p>
     <p>wow youre so smart howd you find this site!!</p>
   </div>
+
 </template>
 
 <script>
@@ -25,8 +52,13 @@ export default {
   name: 'Main',
   mounted() {
     let vm = this;
+
+    // capture the component so we can set ~reactive~ bits on it when page loads
+    // FIXME this is kind of fucky but i cant figure out a better way
+    // the ~reactive~ shit cant watch window variables so it all feels really brittle
     window.addEventListener("load", function() {
         vm.provider = window.solana;
+        vm.providerConnected = window.solana.isConnected;
     });
   },
   data() {
@@ -34,6 +66,7 @@ export default {
       connectKey: 0,
       provider: null,
       providerConnected: false,
+      selectedNetwork: "fortuna",
     }
   },
   computed: {
@@ -54,7 +87,10 @@ export default {
             return;
         }
 
+        // FIXME if the user has to input their password this returns immediately
+        // i could spinlock here but god would kill me and we cant detect if they reject the prompt anyway
         await vm.provider.connect();
+        console.log("connected??", window.solana.isConnected);
         vm.providerConnected = true;
     },
     reverseMsg() {
@@ -71,6 +107,32 @@ export default {
 
 <!-- Add "scoped" attribute to limit CSS to this component only -->
 <style scoped>
+.navbar {
+    margin: 1em;
+    display: flex;
+    justify-content: space-around;
+}
+
+.funbox {
+    margin: 1em;
+    display: flex;
+    justify-content: space-around;
+}
+
+.cozy  {
+    margin: 0.25em;
+}
+
+.right {
+    align: right;
+    text-align: right;
+}
+
+.center {
+    align: center;
+    text-align: center;
+}
+
 .provider {
     align: right;
     text-align: right;

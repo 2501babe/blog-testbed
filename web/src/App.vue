@@ -69,6 +69,11 @@ import Main from "./components/Main.vue";
 // * clicky connect, do the phantom setup dance. yay window.solana works now
 // * maybe just one main page for now. textarea on left for making a post
 //   list of existing posts on right. some place to register user info
+// XXX ok that shit worked fine. vue is actually pretty easy
+// next up i need to port my api code stuff over
+// have a network dropdown or something, fetch my hashmaps, fill out user
+// what does page actually look like
+// nav on left post box in center user info and own post list on right?
 
 export default {
   name: 'App',
@@ -79,8 +84,4 @@ export default {
 </script>
 
 <style>
-#app {
-    align: center;
-    text-align: center;
-}
 </style>
