@@ -20,18 +20,21 @@
   <h1 class="cozy center">navy</h1>
 
   <div v-if="providerConnected" class="funbox">
+    <!-- nav and shit, idk what goes here yet -->
     <div class="sidebar">
       <a>home</a>
       <a>idk</a>
       <a>something</a>
     </div>
 
+    <!-- main window ig just let ppl post here. maybe nav switches this area exclusively -->
     <div class="zone">
       <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
       <br/>
       <button>put it on the internet forever</button>
     </div>
 
+    <!-- info for the logged in user plus their posts -->
     <div class="sidebar">
     </div>
   </div>
@@ -53,12 +56,10 @@ const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H7
 const USRWAL_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID);
 const WALUSR_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID);
 
-/*
 const COMMITMENT = "processed";
-const SKIP_PREFLIGHT = true;
+const SKIP_PREFLIGHT = false;
 
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
-*/
 
 const NETWORKS = {
     "mainnet": "https://solana-api.projectserum.com",
@@ -163,6 +164,7 @@ export default {
     // API ZONE this shit should be a component or something but 
     // i dont know how to pass data between them easily lolz
 
+    // {"CreateUser": {"username": STRING}}
     // read account data and parse into json
     async getStruct(addr) {
         let vm = this;
@@ -170,6 +172,55 @@ export default {
         let acct = await vm.connection.getAccountInfo(addr);
         let str = acct ? acct.data.toString().split("\0").shift() : "";
         return str.length > 0 ? JSON.parse(str) : {};
+    },
+    async createUser(username) {
+        let vm = this;
+
+        if(!username.match(USERNAME_REGEX)) {
+            alert("usernames are 1-32 alphanum or underscore starting with alpha");
+            return;
+        }
+
+        if(vm.userdata) {
+            alert("user exists pls use updateUser");
+            return;
+        }
+
+        let data = Buffer.from(`{"CreateUser": {"username": "${username}"}}`, "utf8");
+        let userAccount = new w3.Account();
+        let usrwalKey = (await USRWAL_PROMISE)[0];
+        let walusrKey = (await WALUSR_PROMISE)[0];
+
+        let keys = [
+            {pubkey: vm.provider.publicKey, isSigner: true, isWritable: true},
+            {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: usrwalKey, isSigner: false, isWritable: true},
+            {pubkey: walusrKey, isSigner: false, isWritable: true},
+            {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},
+        ];
+
+        let ixn = new w3.TransactionInstruction({
+            keys: keys,
+            programId: PROGRAM_ID,
+            data: data,
+        });
+
+        let txn = new w3.Transaction().add(ixn);
+        txn.feePayer = vm.provider.publicKey;
+        txn.recentBlockhash = (await vm.connection.getRecentBlockhash(COMMITMENT)).blockhash;
+        txn.partialSign(userAccount);
+        await vm.provider.signTransaction(txn);
+
+        let signature = await w3.sendAndConfirmRawTransaction(
+            vm.connection,
+            txn.serialize(),
+            {commitment: COMMITMENT, preflightCommitment: COMMITMENT, skipPreflight: SKIP_PREFLIGHT},
+        );
+
+        console.log("CREATE USER:", signature);
+        return signature;
     },
   }
 }
