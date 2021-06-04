@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::mem::*;
 use uuid::*;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use serde_with::{serde_as, DisplayFromStr};
 use solana_program::{
     account_info::*, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
     clock::*, program_error::*, system_instruction::*, pubkey::*, program::*,
@@ -14,8 +15,12 @@ const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
 const USERNAME_MAX_LEN: u64 = 32;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct UsernameWallets(BTreeMap<Username, Pubkey>);
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct UsernameWallets(
+    #[serde_as(as = "BTreeMap<_, DisplayFromStr>")]
+    BTreeMap<Username, Pubkey>
+);
 impl UsernameWallets {
     fn new() -> Self {
         UsernameWallets(BTreeMap::new())
@@ -23,10 +28,12 @@ impl UsernameWallets {
 }
 impl LoadStoreAccount for UsernameWallets {}
 
-// we need the key to be a string for json conversions to work
-// XXX maybe always store pubkeys as strings? idk
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct WalletUserdata(BTreeMap<String, Pubkey>);
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct WalletUserdata(
+    #[serde_as(as = "BTreeMap<DisplayFromStr, DisplayFromStr>")]
+    BTreeMap<Pubkey, Pubkey>
+);
 impl WalletUserdata {
     fn new() -> Self {
         WalletUserdata(BTreeMap::new())
@@ -254,7 +261,7 @@ fn create_user(
     }
 
     // check if user already has an account set up
-    if wallet_users.0.contains_key(&payer.key.to_string()) {
+    if wallet_users.0.contains_key(payer.key) {
         return Err(ProgramError::AccountAlreadyInitialized);
     }
 
@@ -273,7 +280,7 @@ fn create_user(
     // XXX make insert a method that returns a program result mb
     // add references to our metadata maps
     user_wallets.0.insert(username.clone(), *payer.key);
-    wallet_users.0.insert(payer.key.to_string(), *userdata_acct.key);
+    wallet_users.0.insert(*payer.key, *userdata_acct.key);
     user_wallets.store(&user_wallets_acct)?;
     wallet_users.store(&wallet_users_acct)?;
 
@@ -310,6 +317,19 @@ mod test {
         assert!(Username::new("a").is_ok());
         assert!(Username::new("A").is_ok());
         assert!(Username::new("sajhdASDJSA123____").is_ok());
+    }
+
+    #[test]
+    fn serialize() {
+        let key1 = Pubkey::new_unique();
+        let key2 = Pubkey::new_unique();
+        let mut wudat = WalletUserdata::new();
+        wudat.0.insert(key1, key2);
+        let wudat_txt = serde_json::to_string(&wudat);
+        assert!(wudat_txt.is_ok());
+        let wudat_re: Result<WalletUserdata, serde_json::Error> = serde_json::from_str(&wudat_txt.unwrap());
+        assert!(wudat_re.is_ok());
+        assert_eq!(wudat, wudat_re.unwrap());
     }
 
     #[test]
