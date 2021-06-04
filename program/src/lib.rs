@@ -26,13 +26,13 @@ impl LoadStoreAccount for UsernameWallets {}
 // we need the key to be a string for json conversions to work
 // XXX maybe always store pubkeys as strings? idk
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct WalletUserData(BTreeMap<String, Pubkey>);
-impl WalletUserData {
+struct WalletUserdata(BTreeMap<String, Pubkey>);
+impl WalletUserdata {
     fn new() -> Self {
-        WalletUserData(BTreeMap::new())
+        WalletUserdata(BTreeMap::new())
     }
 }
-impl LoadStoreAccount for WalletUserData {}
+impl LoadStoreAccount for WalletUserdata {}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct Username(String);
@@ -53,22 +53,22 @@ impl Username {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct UserData {
+struct Userdata {
     wallet: Pubkey,
     username: Username,
     created: UnixTimestamp,
     updated: UnixTimestamp,
-    posts: Vec<PostData>,
+    posts: Vec<Postdata>,
 }
-impl UserData {
+impl Userdata {
     fn new(wallet: &Pubkey, username: &Username, ts: UnixTimestamp) -> Self {
-        UserData { wallet: *wallet, username: username.clone(), created: ts, updated: ts, posts: [].to_vec() }
+        Userdata { wallet: *wallet, username: username.clone(), created: ts, updated: ts, posts: [].to_vec() }
     }
 }
-impl LoadStoreAccount for UserData {}
+impl LoadStoreAccount for Userdata {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct PostData {
+struct Postdata {
     id: PostId,
     title: String,
     uri: String,
@@ -76,13 +76,13 @@ struct PostData {
     updated: UnixTimestamp,
     post: Pubkey,
 }
-impl PostData {
+impl Postdata {
     fn new(owner: &Pubkey, title: &str, uri: &str, ts: UnixTimestamp) -> Self {
         let id = PostId::new(owner, title, ts);
-        PostData { id: id, title: title.to_string(), uri: uri.to_string(), created: ts, updated: ts, post: *owner }
+        Postdata { id: id, title: title.to_string(), uri: uri.to_string(), created: ts, updated: ts, post: *owner }
     }
 }
-impl LoadStoreAccount for PostData {}
+impl LoadStoreAccount for Postdata {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct PostId(Uuid);
@@ -245,7 +245,7 @@ fn create_user(
     let userdata_acct = next_account_info(account_info_iter)?;
 
     let mut user_wallets = UsernameWallets::load(user_wallets_acct)?;
-    let mut wallet_users = WalletUserData::load(wallet_users_acct)?;
+    let mut wallet_users = WalletUserdata::load(wallet_users_acct)?;
 
     // XXX is there a way to return non shit errors?
     // check if username is already taken
@@ -267,7 +267,7 @@ fn create_user(
 
     // build userdata and store in account
     let ts = clock.unix_timestamp;
-    let userdata_struct = UserData::new(payer.key, username, ts);
+    let userdata_struct = Userdata::new(payer.key, username, ts);
     userdata_struct.store(&userdata_acct)?;
 
     // XXX make insert a method that returns a program result mb

@@ -19,7 +19,7 @@ const username_regex = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 
 // debauched solweb3 devs use an async sha256 so these cant be toplevel constants
 var usernameWalletAddr;
-var walletUserDataAddr;
+var walletUserdataAddr;
 
 // basic program shit
 const main = {
@@ -68,11 +68,11 @@ const post = {
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: usernameWalletAddr, isSigner: false, isWritable: true},
-            {pubkey: walletUserDataAddr, isSigner: false, isWritable: true},
+            {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
         ];
 
         console.log("initialize as", wallet.publicKey.toString(),
-                    "for", usernameWalletAddr.toString(), "/", walletUserDataAddr.toString());
+                    "for", usernameWalletAddr.toString(), "/", walletUserdataAddr.toString());
 
         let ixn = new w3.TransactionInstruction({
             keys: keys,
@@ -110,7 +110,7 @@ const post = {
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: usernameWalletAddr, isSigner: false, isWritable: true},
-            {pubkey: walletUserDataAddr, isSigner: false, isWritable: true},
+            {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
             {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},
         ];
 
@@ -138,7 +138,7 @@ const post = {
 (async () => {
     // init these globals
     usernameWalletAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID))[0];
-    walletUserDataAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID))[0];
+    walletUserdataAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID))[0];
 
     console.log("establishing connection");
     let conn = main.connect(NETWORK);
@@ -149,12 +149,12 @@ const post = {
     // maps from username to pubkey and pubkey to userdata address
     console.log("loading data");
     let userWallets = await get.struct(conn, usernameWalletAddr);
-    let walletUsers = await get.struct(conn, walletUserDataAddr);
+    let walletUsers = await get.struct(conn, walletUserdataAddr);
 
     // get userdata if it exists
-    let userDataAddr = walletUsers[wallet.publicKey.toString()];
-    //console.log("userdataaddr:", new w3.PublicKey(userDataAddr).toString());
-    let user = userDataAddr ? await get.struct(conn, new w3.PublicKey(userDataAddr)) : null;
+    let userdataAddr = walletUsers[wallet.publicKey.toString()];
+    //console.log("userdataaddr:", new w3.PublicKey(userdataAddr).toString());
+    let user = userdataAddr ? await get.struct(conn, new w3.PublicKey(userdataAddr)) : null;
     //console.log("user:", user);
 
     //console.log("initializing chain storage");

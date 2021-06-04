@@ -75,6 +75,15 @@ import Main from "./components/Main.vue";
 // what does page actually look like
 // nav on left post box in center user info and own post list on right?
 
+// XXX oki aaa what next tomorrow. set up web3 in the app
+// put user and post info in the right sidebar
+// impl createpost
+// then i need to think what else i need...
+// * make pubkeys strings
+// * add tags, category, notional timestamp, summary
+// and then... what other pages do we want. maybe some kind of discover page
+// oh blog stream page for every author obv lol. good enough for now
+
 export default {
   name: 'App',
   components: {

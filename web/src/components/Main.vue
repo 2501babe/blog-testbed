@@ -105,8 +105,8 @@ export default {
       // lookup tables. theres no way to query data onchain
       // so we just ahve to load the whole things into memory lolz
       usernameWallets: null,
-      walletUserData: null,
-      userData: null,
+      walletUserdata: null,
+      userdata: null,
     }
   },
   computed: {
@@ -117,9 +117,9 @@ export default {
         return vm.walletAddress.substring(0, 4) + "..." + vm.walletAddress.substring(vm.walletAddress.length - 4);
     },
     // data block for the currently connected user
-    userdata() {
+    userdataAddress() {
         let vm = this;
-        let user = vm.walletUserData && vm.walletUserData[vm.walletAddress];
+        let user = vm.walletUserdata && vm.walletUserdata[vm.walletAddress];
 
         return user || null;
     },
@@ -157,7 +157,7 @@ export default {
         let vm = this;
 
         vm.usernameWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
-        vm.walletUserData = await vm.getStruct((await WALUSR_PROMISE)[0]);
+        vm.walletUserdata = await vm.getStruct((await WALUSR_PROMISE)[0]);
     },
 
     // API ZONE this shit should be a component or something but 
