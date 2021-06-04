@@ -153,15 +153,15 @@ const post = {
 
     // get userdata if it exists
     let userDataAddr = walletUsers[wallet.publicKey.toString()];
-    console.log("userdataaddr:", new w3.PublicKey(userDataAddr).toString());
+    //console.log("userdataaddr:", new w3.PublicKey(userDataAddr).toString());
     let user = userDataAddr ? await get.struct(conn, new w3.PublicKey(userDataAddr)) : null;
-    console.log("user:", user);
+    //console.log("user:", user);
 
     //console.log("initializing chain storage");
     //await post.initialize(conn, wallet);
 
-    //console.log("creating user");
-    //await post.createUser(conn, wallet, "hana");
+    console.log("creating user");
+    await post.createUser(conn, wallet, "not_hana");
 
     return 0;
 })();

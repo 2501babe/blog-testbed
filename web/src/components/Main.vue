@@ -10,7 +10,7 @@
     </select>
 
     <span v-if="providerConnected">
-      user: {{ prettyKey() }}
+      user: {{ prettyKey }}
     </span>
     <span v-else>
       <button :disabled="!provider" @click="connectProvider()">connect</button>
@@ -26,13 +26,14 @@
       <a>something</a>
     </div>
 
-    <div>
+    <div class="zone">
       <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
       <br/>
       <button>put it on the internet forever</button>
     </div>
 
-    <div>right bar</div>
+    <div class="sidebar">
+    </div>
   </div>
   <div v-else class="center">
     <p>do you love to blog?</p>
@@ -43,39 +44,91 @@
 </template>
 
 <script>
-//import * as w3 from "../node_modules/@solana/web3.js";
+import * as w3 from "../../node_modules/@solana/web3.js";
+
+const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H79");
+
+// XXX i should polyfill my own findProgramAddress replacement
+// its async because they insist of using an async shasum for no reason
+const USRWAL_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID);
+const WALUSR_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID);
+
+/*
+const COMMITMENT = "processed";
+const SKIP_PREFLIGHT = true;
+
+const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+*/
+
+const NETWORKS = {
+    "mainnet": "https://solana-api.projectserum.com",
+    "testnet": "https://api.testnet.solana.com",
+    "devnet": "https://api.devnet.solana.com",
+    "localhost": "http://127.0.0.1:8899",
+    "fortuna": "http://fortuna:8899",
+};
 
 export default {
   name: 'Main',
   mounted() {
     let vm = window.main = this;
 
-    /// this is evil but i havent found a better way
-    // even waiting until the page loads doesnt guarantee window.solana will be set
-    // and there is no good way to monitor isConnected since connect resolves before actually connecting
-    setInterval(() => {
-        if(!vm.provider) {
+    // loop until the wallet shows up on window, this is slower than vue
+    let ivl = setInterval(() => {
+        if(window.solana && !vm.provider) {
             vm.provider = window.solana;
+            vm.provider.on("connect", () => {
+                vm.providerConnected = true;
+                vm.walletAddress = vm.provider.publicKey.toString();
+            });
+            vm.provider.on("disconnect", () => {
+                vm.providerConnected = false;
+                vm.walletAddress = null;
+            });
+            clearInterval(ivl);
         }
+    }, 100);
 
-        if(window.solana && vm.providerConnected != window.solana.isConnected) {
-            vm.providerConnected = window.solana.isConnected;
-        }
-    }, 200);
+    // fetching data can be done independent of wallet
+    // XXX this needs to react to swapping th dropdown
+    vm.connectChain();
   },
   data() {
     return {
+      // wallet stuff
       provider: null,
       providerConnected: false,
+      walletAddress: null,
+      // chain connection
       selectedNetwork: "fortuna",
+      connection: null,
+      // lookup tables. theres no way to query data onchain
+      // so we just ahve to load the whole things into memory lolz
+      usernameWallets: null,
+      walletUserData: null,
+      userData: null,
     }
   },
   computed: {
+    // print first and last four of a pubkey with ellipsis
+    prettyKey() {
+        let vm = this;
+
+        return vm.walletAddress.substring(0, 4) + "..." + vm.walletAddress.substring(vm.walletAddress.length - 4);
+    },
+    // data block for the currently connected user
+    userdata() {
+        let vm = this;
+        let user = vm.walletUserData && vm.walletUserData[vm.walletAddress];
+
+        return user || null;
+    },
   },
   props: {
   },
   methods: {
-    async connectProvider() {
+    // connect wallet
+    connectProvider() {
         let vm = this;
 
         if(!vm.provider) {
@@ -88,25 +141,48 @@ export default {
             return;
         }
 
-        await vm.provider.connect();
+        vm.provider.connect();
     },
-    reverseMsg() {
-      this.msg2 = this.msg2.split("").reverse().join("");
-    },
-    prettyKey() {
+    // connect to the selected chain
+    async connectChain() {
         let vm = this;
-        let pubkey = vm.provider.publicKey.toString();
-        return pubkey.substring(0, 4) + "..." + pubkey.substring(pubkey.length - 4);
-    }
+
+        vm.connection = new w3.Connection(NETWORKS[vm.selectedNetwork]);
+        console.log("connected to", vm.selectedNetwork);
+
+        await vm.loadData();
+    },
+    // load the hashmaps of user account info
+    async loadData() {
+        let vm = this;
+
+        vm.usernameWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
+        vm.walletUserData = await vm.getStruct((await WALUSR_PROMISE)[0]);
+    },
+
+    // API ZONE this shit should be a component or something but 
+    // i dont know how to pass data between them easily lolz
+
+    // read account data and parse into json
+    async getStruct(addr) {
+        let vm = this;
+
+        let acct = await vm.connection.getAccountInfo(addr);
+        let str = acct ? acct.data.toString().split("\0").shift() : "";
+        return str.length > 0 ? JSON.parse(str) : {};
+    },
   }
 }
 </script>
 
 <style scoped>
 .funbox {
-    margin: 1em;
+    margin-top: 4em;
     display: flex;
     justify-content: space-evenly;
+}
+
+.zone {
 }
 
 .sidebar {
