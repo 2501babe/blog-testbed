@@ -13,7 +13,7 @@ const V5NAMESPACE: &Uuid = &Uuid::from_bytes([16, 92, 30, 120, 224, 152, 10, 207
 const HANDLE_WALLETS_SEED: &[u8] = "HANDLE_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
-const HANDLE_MAX_LEN: u64 = 32;
+const HANDLE_MAX_LEN: u64 = 24;
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -41,7 +41,12 @@ impl WalletUserdata {
 }
 impl LoadStoreAccount for WalletUserdata {}
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+// a handle is nonempty, up to 24 characters, alphanumeric and underscores
+// and it cannot start with an underscore (tho ill prolly use _ for something)
+// when live we need a registration fee so people dont just mass register good names
+// strings are stored case sensitive but compared case insensitive
+// im also considering making L and i compare equal
+#[derive(Clone, Debug, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 struct Handle(String);
 impl Handle {
     fn new(name: &str) -> Result<Self, ProgramError> {
@@ -58,18 +63,31 @@ impl Handle {
         }
     }
 }
+impl PartialEq for Handle {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_ascii_lowercase() == other.0.to_ascii_lowercase()
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Userdata {
     wallet: Pubkey,
     handle: Handle,
+    display: String,
     created: UnixTimestamp,
     updated: UnixTimestamp,
     posts: Vec<Postdata>,
 }
 impl Userdata {
-    fn new(wallet: &Pubkey, handle: &Handle, ts: UnixTimestamp) -> Self {
-        Userdata { wallet: *wallet, handle: handle.clone(), created: ts, updated: ts, posts: [].to_vec() }
+    fn new(wallet: &Pubkey, handle: &Handle, display: &str, ts: UnixTimestamp) -> Self {
+        Userdata {
+            wallet: *wallet,
+            handle: handle.clone(),
+            display: display.to_string(),
+            created: ts,
+            updated: ts,
+            posts: [].to_vec()
+        }
     }
 }
 impl LoadStoreAccount for Userdata {}
@@ -158,6 +176,7 @@ enum ProgramInstruction {
     // 6: fresh userdata address
     CreateUser {
         handle: Handle,
+        display: String,
     },
 
     // create a new post
@@ -240,6 +259,7 @@ fn create_user(
     accounts: &[AccountInfo],
     program_id: &Pubkey,
     handle: &Handle,
+    display: &str,
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
@@ -274,7 +294,7 @@ fn create_user(
 
     // build userdata and store in account
     let ts = clock.unix_timestamp;
-    let userdata_struct = Userdata::new(payer.key, handle, ts);
+    let userdata_struct = Userdata::new(payer.key, handle, display, ts);
     userdata_struct.store(&userdata_acct)?;
 
     // XXX make insert a method that returns a program result mb
@@ -298,7 +318,7 @@ fn dispatch(
 
     match insn {
         ProgramInstruction::Initialize => initialize_program(accounts, program_id),
-        ProgramInstruction::CreateUser{handle} => create_user(accounts, program_id, &handle),
+        ProgramInstruction::CreateUser{handle, display} => create_user(accounts, program_id, &handle, &display),
         _ => panic!("fix me"),
     }
 }
@@ -338,7 +358,7 @@ mod test {
         let init_deser: Result<ProgramInstruction, serde_json::Error> = serde_json::from_str(init_insn);
         assert!(init_deser.is_ok());
 
-        let mkuser_insn = r#"{ "CreateUser": { "handle": "hana" }}"#;
+        let mkuser_insn = r#"{ "CreateUser": { "handle": "hana", "display": "hanaaa" }}"#;
         let mkuser_deser: Result<ProgramInstruction, serde_json::Error> = serde_json::from_str(mkuser_insn);
         assert!(mkuser_deser.is_ok());
     }

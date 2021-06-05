@@ -15,7 +15,7 @@ const PROGRAM_ID = new w3.PublicKey("EMJjWij5oLb2usWknxmcpzm6bsgktLxEHPMsafiHDX7
 const COMMITMENT = "processed";
 const SKIP_PREFLIGHT = false;
 
-const handle_regex = /^[a-zA-Z0-9][a-zA-Z0-9_]{0,31}$/;
+const handle_regex = /^[a-zA-Z0-9][a-zA-Z0-9_]{0,23}$/;
 
 // debauched solweb3 devs use an async sha256 so these cant be toplevel constants
 var handleWalletAddr;
@@ -93,15 +93,15 @@ const post = {
         return res;
     },
 
-    // {"CreateUser": {"handle": STRING}}
-    createUser: async (conn, wallet, handle) => {
+    // {"CreateUser": {"handle": STRING, "display": STRING}}
+    createUser: async (conn, wallet, handle, display) => {
         // XXX idk how js is supposed to handle errors like this
         if(!handle.match(handle_regex)) {
             console.log("bad handle:", handle);
             return;
         }
 
-        let data = Buffer.from(`{"CreateUser": {"handle": "${handle}"}}`, "utf8");
+        let data = Buffer.from(`{"CreateUser": {"handle": "${handle}", "display": "${display}"}}`, "utf8");
         let userAccount = new w3.Account();
 
         let keys = [

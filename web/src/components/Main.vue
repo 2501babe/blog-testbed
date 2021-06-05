@@ -43,14 +43,14 @@
         <table>
           <tr>
             <td align="right">handle</td>
-            <td align="left"><input v-model="desiredHandle"/></td>
+            <td align="left"><input v-model="createUserForm.handle"/></td>
           </tr>
           <tr>
             <td align="right">display name</td>
-            <td align="left"><input v-model="desiredDisplay"/></td>
+            <td align="left"><input v-model="createUserForm.display"/></td>
           </tr>
         </table>
-        <div class="center"><button>register</button></div>
+        <div @click="createUser()" class="center"><button>register</button></div>
       </div>
     </div>
   </div>
@@ -75,7 +75,8 @@ const WALUSR_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USER
 const COMMITMENT = "processed";
 const SKIP_PREFLIGHT = false;
 
-const HANDLE_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+const HANDLE_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,23}$/;
+const DISPLAY_LENGTH = 32;
 
 const NETWORKS = {
     "mainnet": "https://solana-api.projectserum.com",
@@ -126,8 +127,7 @@ export default {
       userdata: null,
       //input form data zone
       // XXX this shit should def be a separate component lol
-      desiredHandle: "",
-      desiredDisplay: "",
+      createUserForm: {handle: "", display: ""},
     }
   },
   computed: {
@@ -184,7 +184,7 @@ export default {
     // API ZONE this shit should be a component or something but 
     // i dont know how to pass data between them easily lolz
 
-    // {"CreateUser": {"handle": STRING}}
+    // {"CreateUser": {"handle": STRING, "display": STRING}}
     // read account data and parse into json
     async getStruct(addr) {
         let vm = this;
@@ -193,11 +193,18 @@ export default {
         let str = acct ? acct.data.toString().split("\0").shift() : "";
         return str.length > 0 ? JSON.parse(str) : {};
     },
-    async createUser(handle) {
+    async createUser() {
         let vm = this;
+        let form = vm.createUserForm;
 
-        if(!handle.match(HANDLE_REGEX)) {
-            alert("handles are 1-32 alphanum or underscore starting with alpha");
+        if(!form.handle.match(HANDLE_REGEX)) {
+            alert("handles are 1-24 alphanum/underscore, not starting with underscore");
+            return;
+        }
+
+        // XXX im like, 80% sure js length is byes not codepoints lol
+        if(form.display.length > DISPLAY_LENGTH) {
+            alert("display names are at most 32 characters");
             return;
         }
 
@@ -206,7 +213,11 @@ export default {
             return;
         }
 
-        let data = Buffer.from(`{"CreateUser": {"handle": "${handle}"}}`, "utf8");
+        if(!form.display) {
+            form.display = "~" + form.handle;
+        }
+
+        let data = Buffer.from(JSON.stringify({CreateUser: form}));
         let userAccount = new w3.Account();
         let usrwalKey = (await USRWAL_PROMISE)[0];
         let walusrKey = (await WALUSR_PROMISE)[0];
@@ -263,6 +274,10 @@ export default {
 
 .cozy  {
     margin: 0.25em;
+}
+
+.left {
+    text-align: left;
 }
 
 .right {
