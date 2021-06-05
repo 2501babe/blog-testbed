@@ -36,6 +36,22 @@
 
     <!-- info for the logged in user plus their posts -->
     <div class="sidebar">
+      <div v-if="userdata">
+        display user here
+      </div>
+      <div v-else>
+        <table>
+          <tr>
+            <td align="right">handle</td>
+            <td align="left"><input v-model="desiredHandle"/></td>
+          </tr>
+          <tr>
+            <td align="right">display name</td>
+            <td align="left"><input v-model="desiredDisplay"/></td>
+          </tr>
+        </table>
+        <div class="center"><button>register</button></div>
+      </div>
     </div>
   </div>
   <div v-else class="center">
@@ -49,17 +65,17 @@
 <script>
 import * as w3 from "../../node_modules/@solana/web3.js";
 
-const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H79");
+const PROGRAM_ID = new w3.PublicKey("EMJjWij5oLb2usWknxmcpzm6bsgktLxEHPMsafiHDX7e");
 
 // XXX i should polyfill my own findProgramAddress replacement
 // its async because they insist of using an async shasum for no reason
-const USRWAL_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID);
+const USRWAL_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("HANDLE_WALLETS")], PROGRAM_ID);
 const WALUSR_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID);
 
 const COMMITMENT = "processed";
 const SKIP_PREFLIGHT = false;
 
-const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+const HANDLE_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 
 const NETWORKS = {
     "mainnet": "https://solana-api.projectserum.com",
@@ -105,9 +121,13 @@ export default {
       connection: null,
       // lookup tables. theres no way to query data onchain
       // so we just ahve to load the whole things into memory lolz
-      usernameWallets: null,
+      handleWallets: null,
       walletUserdata: null,
       userdata: null,
+      //input form data zone
+      // XXX this shit should def be a separate component lol
+      desiredHandle: "",
+      desiredDisplay: "",
     }
   },
   computed: {
@@ -157,14 +177,14 @@ export default {
     async loadData() {
         let vm = this;
 
-        vm.usernameWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
+        vm.handleWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
         vm.walletUserdata = await vm.getStruct((await WALUSR_PROMISE)[0]);
     },
 
     // API ZONE this shit should be a component or something but 
     // i dont know how to pass data between them easily lolz
 
-    // {"CreateUser": {"username": STRING}}
+    // {"CreateUser": {"handle": STRING}}
     // read account data and parse into json
     async getStruct(addr) {
         let vm = this;
@@ -173,11 +193,11 @@ export default {
         let str = acct ? acct.data.toString().split("\0").shift() : "";
         return str.length > 0 ? JSON.parse(str) : {};
     },
-    async createUser(username) {
+    async createUser(handle) {
         let vm = this;
 
-        if(!username.match(USERNAME_REGEX)) {
-            alert("usernames are 1-32 alphanum or underscore starting with alpha");
+        if(!handle.match(HANDLE_REGEX)) {
+            alert("handles are 1-32 alphanum or underscore starting with alpha");
             return;
         }
 
@@ -186,7 +206,7 @@ export default {
             return;
         }
 
-        let data = Buffer.from(`{"CreateUser": {"username": "${username}"}}`, "utf8");
+        let data = Buffer.from(`{"CreateUser": {"handle": "${handle}"}}`, "utf8");
         let userAccount = new w3.Account();
         let usrwalKey = (await USRWAL_PROMISE)[0];
         let walusrKey = (await WALUSR_PROMISE)[0];
@@ -246,17 +266,14 @@ export default {
 }
 
 .right {
-    align: right;
     text-align: right;
 }
 
 .center {
-    align: center;
     text-align: center;
 }
 
 .provider {
-    align: right;
     text-align: right;
     margin: 1em;
 }

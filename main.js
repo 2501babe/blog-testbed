@@ -8,17 +8,17 @@ const path = require("path");
 const LAMPS = 1000000000;
 const KEYFILE = "testwallet.bin";
 const NETWORK = "http://fortuna:8899";
-const PROGRAM_ID = new w3.PublicKey("AbBrxmZKUJdn5ezmUUQSjefwojspSNSFwUDCHajg8H79");
+const PROGRAM_ID = new w3.PublicKey("EMJjWij5oLb2usWknxmcpzm6bsgktLxEHPMsafiHDX7e");
 
 // for debug these should be processed (faster) and true (actually test the server)
 // but in prod we prolly want finalized and false
 const COMMITMENT = "processed";
-const SKIP_PREFLIGHT = true;
+const SKIP_PREFLIGHT = false;
 
-const username_regex = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+const handle_regex = /^[a-zA-Z0-9][a-zA-Z0-9_]{0,31}$/;
 
 // debauched solweb3 devs use an async sha256 so these cant be toplevel constants
-var usernameWalletAddr;
+var handleWalletAddr;
 var walletUserdataAddr;
 
 // basic program shit
@@ -67,12 +67,12 @@ const post = {
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
-            {pubkey: usernameWalletAddr, isSigner: false, isWritable: true},
+            {pubkey: handleWalletAddr, isSigner: false, isWritable: true},
             {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
         ];
 
         console.log("initialize as", wallet.publicKey.toString(),
-                    "for", usernameWalletAddr.toString(), "/", walletUserdataAddr.toString());
+                    "for", handleWalletAddr.toString(), "/", walletUserdataAddr.toString());
 
         let ixn = new w3.TransactionInstruction({
             keys: keys,
@@ -93,15 +93,15 @@ const post = {
         return res;
     },
 
-    // {"CreateUser": {"username": STRING}}
-    createUser: async (conn, wallet, username) => {
+    // {"CreateUser": {"handle": STRING}}
+    createUser: async (conn, wallet, handle) => {
         // XXX idk how js is supposed to handle errors like this
-        if(!username.match(username_regex)) {
-            console.log("bad username:", username);
+        if(!handle.match(handle_regex)) {
+            console.log("bad handle:", handle);
             return;
         }
 
-        let data = Buffer.from(`{"CreateUser": {"username": "${username}"}}`, "utf8");
+        let data = Buffer.from(`{"CreateUser": {"handle": "${handle}"}}`, "utf8");
         let userAccount = new w3.Account();
 
         let keys = [
@@ -109,7 +109,7 @@ const post = {
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
-            {pubkey: usernameWalletAddr, isSigner: false, isWritable: true},
+            {pubkey: handleWalletAddr, isSigner: false, isWritable: true},
             {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
             {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},
         ];
@@ -137,7 +137,7 @@ const post = {
 
 (async () => {
     // init these globals
-    usernameWalletAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("USERNAME_WALLETS")], PROGRAM_ID))[0];
+    handleWalletAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("HANDLE_WALLETS")], PROGRAM_ID))[0];
     walletUserdataAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID))[0];
 
     console.log("establishing connection");
@@ -146,9 +146,9 @@ const post = {
     console.log("loading wallet");
     let wallet = await main.wallet(conn);
 
-    // maps from username to pubkey and pubkey to userdata address
+    // maps from handle to pubkey and pubkey to userdata address
     console.log("loading data");
-    let userWallets = await get.struct(conn, usernameWalletAddr);
+    let userWallets = await get.struct(conn, handleWalletAddr);
     let walletUsers = await get.struct(conn, walletUserdataAddr);
 
     // get userdata if it exists
@@ -157,8 +157,8 @@ const post = {
     let user = userdataAddr ? await get.struct(conn, new w3.PublicKey(userdataAddr)) : null;
     //console.log("user:", user);
 
-    //console.log("initializing chain storage");
-    //await post.initialize(conn, wallet);
+    console.log("initializing chain storage");
+    await post.initialize(conn, wallet);
 
     console.log("creating user");
     await post.createUser(conn, wallet, "not_hana");
