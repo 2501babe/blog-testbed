@@ -13,11 +13,12 @@ const PROGRAM_ID = new w3.PublicKey("EMJjWij5oLb2usWknxmcpzm6bsgktLxEHPMsafiHDX7
 // for debug these should be processed (faster) and true (actually test the server)
 // but in prod we prolly want finalized and false
 const COMMITMENT = "processed";
-const SKIP_PREFLIGHT = false;
+const SKIP_PREFLIGHT = true;
 
 const handle_regex = /^[a-zA-Z0-9][a-zA-Z0-9_]{0,23}$/;
 
 // debauched solweb3 devs use an async sha256 so these cant be toplevel constants
+var etagAddr;
 var handleWalletAddr;
 var walletUserdataAddr;
 
@@ -67,12 +68,13 @@ const post = {
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: etagAddr, isSigner: false, isWritable: true},
             {pubkey: handleWalletAddr, isSigner: false, isWritable: true},
             {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
         ];
 
         console.log("initialize as", wallet.publicKey.toString(),
-                    "for", handleWalletAddr.toString(), "/", walletUserdataAddr.toString());
+                    "for", etagAddr.toString(), "/", handleWalletAddr.toString(), "/", walletUserdataAddr.toString());
 
         let ixn = new w3.TransactionInstruction({
             keys: keys,
@@ -109,6 +111,7 @@ const post = {
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: etagAddr, isSigner: false, isWritable: true},
             {pubkey: handleWalletAddr, isSigner: false, isWritable: true},
             {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
             {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},
@@ -137,6 +140,7 @@ const post = {
 
 (async () => {
     // init these globals
+    etagAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("ETAG")], PROGRAM_ID))[0];
     handleWalletAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("HANDLE_WALLETS")], PROGRAM_ID))[0];
     walletUserdataAddr = (await w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID))[0];
 
@@ -157,8 +161,8 @@ const post = {
     let user = userdataAddr ? await get.struct(conn, new w3.PublicKey(userdataAddr)) : null;
     //console.log("user:", user);
 
-    console.log("initializing chain storage");
-    await post.initialize(conn, wallet);
+    //console.log("initializing chain storage");
+    //await post.initialize(conn, wallet);
 
     console.log("creating user");
     await post.createUser(conn, wallet, "not_hana");

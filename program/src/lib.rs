@@ -10,6 +10,7 @@ use solana_program::{
 };
 
 const V5NAMESPACE: &Uuid = &Uuid::from_bytes([16, 92, 30, 120, 224, 152, 10, 207, 140, 56, 246, 228, 206, 99, 196, 138]);
+const ETAG_SEED: &[u8] = "ETAG".as_bytes();
 const HANDLE_WALLETS_SEED: &[u8] = "HANDLE_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
 const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
@@ -162,8 +163,9 @@ enum ProgramInstruction {
     // 0: paypig
     // 1: system program
     // 2: rent sysvar
-    // 3: handles -> wallets
-    // 4: wallets -> userdatas
+    // 3: etag
+    // 4: handles -> wallets
+    // 5: wallets -> userdatas
     Initialize,
 
     // create a new user
@@ -171,9 +173,10 @@ enum ProgramInstruction {
     // 1: system program
     // 2: rent sysvar
     // 3: clock sysvar
-    // 4: handles -> wallets
-    // 5: wallets -> userdatas
-    // 6: fresh userdata address
+    // 4: etag
+    // 5: handles -> wallets
+    // 6: wallets -> userdatas
+    // 7: fresh userdata address
     CreateUser {
         handle: Handle,
         display: String,
@@ -184,9 +187,10 @@ enum ProgramInstruction {
     // 1: system program
     // 2: rent sysvar
     // 3: clock sysvar
-    // 4: handles -> wallets
-    // 5: wallets -> userdatas
-    // 6: fresh post address
+    // 4: etag
+    // 5: handles -> wallets
+    // 6: wallets -> userdatas
+    // 7: fresh post address
     CreatePost {
         title: String,
         text: String,
@@ -235,13 +239,17 @@ fn initialize_program(
     let payer = next_account_info(account_info_iter)?;
     let sys = next_account_info(account_info_iter)?;
     let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    let etag = next_account_info(account_info_iter)?;
     let user_wallets_acct = next_account_info(account_info_iter)?;
     let wallet_users_acct = next_account_info(account_info_iter)?;
 
-    // alloc and init two program derived accounts for metadata mappings
+    // alloc and init program derived accounts for metadata
     // these will autofail if the accounts already exist or if the provided addresses differ
+    alloc_account(accounts, program_id, payer, rentier, etag, ETAG_SEED, 8)?;
     alloc_account(accounts, program_id, payer, rentier, user_wallets_acct, HANDLE_WALLETS_SEED, HASHMAP_INITIAL_SIZE)?;
     alloc_account(accounts, program_id, payer, rentier, wallet_users_acct, WALLET_USERDATA_SEED, HASHMAP_INITIAL_SIZE)?;
+
+    // etag is a counter and accounts are calloced so no init needed
 
     // handles to wallet addresses
     let mut user_wallets = user_wallets_acct.try_borrow_mut_data()?;
@@ -267,6 +275,7 @@ fn create_user(
     let sys = next_account_info(account_info_iter)?;
     let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
     let clock = &Clock::from_account_info(next_account_info(account_info_iter)?)?;
+    let etag_acct = next_account_info(account_info_iter)?;
     let user_wallets_acct = next_account_info(account_info_iter)?;
     let wallet_users_acct = next_account_info(account_info_iter)?;
     let userdata_acct = next_account_info(account_info_iter)?;
@@ -303,6 +312,12 @@ fn create_user(
     wallet_users.0.insert(*payer.key, *userdata_acct.key);
     user_wallets.store(&user_wallets_acct)?;
     wallet_users.store(&wallet_users_acct)?;
+
+    // update etag and return
+    let mut etag = etag_acct.try_borrow_mut_data()?;
+    let mut dst = [0; 8];
+    dst.clone_from_slice(&etag[0..8]);
+    etag[0..8].copy_from_slice(&(u64::from_be_bytes(dst) + 1).to_be_bytes());
 
     Ok(())
 }

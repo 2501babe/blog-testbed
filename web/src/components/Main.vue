@@ -69,6 +69,7 @@ const PROGRAM_ID = new w3.PublicKey("EMJjWij5oLb2usWknxmcpzm6bsgktLxEHPMsafiHDX7
 
 // XXX i should polyfill my own findProgramAddress replacement
 // its async because they insist of using an async shasum for no reason
+const ETAG_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("ETAG")], PROGRAM_ID);
 const USRWAL_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("HANDLE_WALLETS")], PROGRAM_ID);
 const WALUSR_PROMISE = w3.PublicKey.findProgramAddress([Buffer.from("WALLET_USERDATA")], PROGRAM_ID);
 
@@ -122,6 +123,7 @@ export default {
       connection: null,
       // lookup tables. theres no way to query data onchain
       // so we just ahve to load the whole things into memory lolz
+      etag: 0,
       handleWallets: null,
       walletUserdata: null,
       userdata: null,
@@ -177,6 +179,7 @@ export default {
     async loadData() {
         let vm = this;
 
+        vm.etag = await vm.getEtag((await ETAG_PROMISE)[0]);
         vm.handleWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
         vm.walletUserdata = await vm.getStruct((await WALUSR_PROMISE)[0]);
     },
@@ -184,7 +187,16 @@ export default {
     // API ZONE this shit should be a component or something but 
     // i dont know how to pass data between them easily lolz
 
-    // {"CreateUser": {"handle": STRING, "display": STRING}}
+    // read etag and retain as number
+    // this is supposed to be a u64 on server but js numbers are stupidpilled
+    // but it doesnt matter since we only care that it changes
+    async getEtag(addr) {
+        let vm = this;
+
+        let acct = await vm.connection.getAccountInfo(addr);
+        let dv = acct && new DataView(acct.data.buffer);
+        return dv ? dv.getUint32(4) : -1;
+    },
     // read account data and parse into json
     async getStruct(addr) {
         let vm = this;
@@ -193,6 +205,7 @@ export default {
         let str = acct ? acct.data.toString().split("\0").shift() : "";
         return str.length > 0 ? JSON.parse(str) : {};
     },
+    // {"CreateUser": {"handle": STRING, "display": STRING}}
     async createUser() {
         let vm = this;
         let form = vm.createUserForm;
@@ -219,6 +232,7 @@ export default {
 
         let data = Buffer.from(JSON.stringify({CreateUser: form}));
         let userAccount = new w3.Account();
+        let etagKey = (await ETAG_PROMISE)[0];
         let usrwalKey = (await USRWAL_PROMISE)[0];
         let walusrKey = (await WALUSR_PROMISE)[0];
 
@@ -227,6 +241,7 @@ export default {
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: etagKey, isSigner: false, isWritable: true},
             {pubkey: usrwalKey, isSigner: false, isWritable: true},
             {pubkey: walusrKey, isSigner: false, isWritable: true},
             {pubkey: userAccount.publicKey, isSigner: true, isWritable: true},

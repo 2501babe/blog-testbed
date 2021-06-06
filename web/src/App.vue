@@ -84,6 +84,11 @@ import Main from "./components/Main.vue";
 // and then... what other pages do we want. maybe some kind of discover page
 // oh blog stream page for every author obv lol. good enough for now
 
+// XXX NEXT THINGS
+// * periodically refresh hashmaps, maybe have a "last updated" sentinal account
+// * watcher to fill userdata from hashmap
+// * create post impl
+
 export default {
   name: 'App',
   components: {
