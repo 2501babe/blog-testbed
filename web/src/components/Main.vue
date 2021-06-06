@@ -93,7 +93,7 @@ export default {
     let vm = window.main = this;
 
     // loop until the wallet shows up on window, this is slower than vue
-    let ivl = setInterval(() => {
+    let providerLoop = setInterval(() => {
         if(window.solana && !vm.provider) {
             vm.provider = window.solana;
             vm.provider.on("connect", () => {
@@ -104,13 +104,15 @@ export default {
                 vm.providerConnected = false;
                 vm.walletAddress = null;
             });
-            clearInterval(ivl);
+            clearInterval(providerLoop);
         }
     }, 100);
 
-    // fetching data can be done independent of wallet
-    // XXX this needs to react to swapping th dropdown
+    // connect to selected network, load data immediately
+    // and then set up a sentinal to continuously refresh as needed
     vm.connectChain();
+    vm.loadData(true);
+    setInterval(() => vm.loadData(), 2 * 60 * 1000);
   },
   data() {
     return {
@@ -131,6 +133,17 @@ export default {
       // XXX this shit should def be a separate component lol
       createUserForm: {handle: "", display: ""},
     }
+  },
+  watch: {
+    // reconnect and force refresh our data when network changes
+    selectedNetwork(prev, curr) {
+        let vm = this;
+
+        if(prev != curr) {
+            vm.connectChain();
+            vm.loadData(true);
+        }
+    },
   },
   computed: {
     // print first and last four of a pubkey with ellipsis
@@ -167,21 +180,26 @@ export default {
         vm.provider.connect();
     },
     // connect to the selected chain
-    async connectChain() {
+    connectChain() {
         let vm = this;
 
+        // in theory letting an existing connection scope out should disconnect it
+        // regardles sthe object has no explicit disconnect
         vm.connection = new w3.Connection(NETWORKS[vm.selectedNetwork]);
         console.log("connected to", vm.selectedNetwork);
-
-        await vm.loadData();
     },
     // load the hashmaps of user account info
-    async loadData() {
+    // etag is a counter incremented onchain whenever the structs change
+    async loadData(force = false) {
         let vm = this;
 
-        vm.etag = await vm.getEtag((await ETAG_PROMISE)[0]);
-        vm.handleWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
-        vm.walletUserdata = await vm.getStruct((await WALUSR_PROMISE)[0]);
+        let etag = await vm.getEtag((await ETAG_PROMISE)[0]);
+
+        if(force || etag != vm.etag || etag == 0) {
+            vm.handleWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
+            vm.walletUserdata = await vm.getStruct((await WALUSR_PROMISE)[0]);
+            vm.etag = etag;
+        }
     },
 
     // API ZONE this shit should be a component or something but 
@@ -195,7 +213,7 @@ export default {
 
         let acct = await vm.connection.getAccountInfo(addr);
         let dv = acct && new DataView(acct.data.buffer);
-        return dv ? dv.getUint32(4) : -1;
+        return dv ? dv.getUint32(4) : 0;
     },
     // read account data and parse into json
     async getStruct(addr) {
@@ -266,6 +284,8 @@ export default {
         );
 
         console.log("CREATE USER:", signature);
+        await vm.loadData();
+
         return signature;
     },
   }
