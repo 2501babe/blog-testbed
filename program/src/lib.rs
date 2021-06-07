@@ -6,14 +6,15 @@ use serde_with::{serde_as, DisplayFromStr};
 use solana_program::{
     account_info::*, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
     clock::*, program_error::*, system_instruction::*, pubkey::*, program::*,
-    sysvar::rent::*, sysvar::Sysvar,
+    sysvar::rent::*, sysvar::Sysvar, log::*
 };
 
 const V5NAMESPACE: &Uuid = &Uuid::from_bytes([16, 92, 30, 120, 224, 152, 10, 207, 140, 56, 246, 228, 206, 99, 196, 138]);
 const ETAG_SEED: &[u8] = "ETAG".as_bytes();
 const HANDLE_WALLETS_SEED: &[u8] = "HANDLE_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
-const HASHMAP_INITIAL_SIZE: u64 = 0x2000;
+const HASHMAP_INITIAL_SIZE: u64 = 0x200;
+const USERDATA_INITIAL_SIZE: usize = 0x100;
 const HANDLE_MAX_LEN: u64 = 24;
 
 #[serde_as]
@@ -70,6 +71,24 @@ impl PartialEq for Handle {
     }
 }
 
+// FIXME character restrictions here are excessive, follow the rfc later
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Uri(String);
+impl Uri {
+    fn new(uri: &str) -> Result<Self, ProgramError> {
+        let chars = uri.chars();
+
+        if uri.len() > 0
+        && uri.is_ascii()
+        && uri.chars().nth(0).unwrap().is_alphabetic()
+        && uri.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return Ok(Uri(uri.to_string().to_ascii_lowercase()));
+        } else {
+            return Err(ProgramError::InvalidArgument);
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Userdata {
@@ -95,19 +114,21 @@ impl Userdata {
 }
 impl LoadStoreAccount for Userdata {}
 
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Postdata {
     id: PostId,
     title: String,
-    uri: String,
+    uri: Uri,
     created: UnixTimestamp,
     updated: UnixTimestamp,
+    #[serde_as(as = "DisplayFromStr")]
     post: Pubkey,
 }
 impl Postdata {
-    fn new(owner: &Pubkey, title: &str, uri: &str, ts: UnixTimestamp) -> Self {
+    fn new(owner: &Pubkey, title: &str, uri: &Uri, ts: UnixTimestamp, post: &Pubkey) -> Self {
         let id = PostId::new(owner, title, ts);
-        Postdata { id: id, title: title.to_string(), uri: uri.to_string(), created: ts, updated: ts, post: *owner }
+        Postdata { id: id, title: title.to_string(), uri: uri.clone(), created: ts, updated: ts, post: *post }
     }
 }
 impl LoadStoreAccount for Postdata {}
@@ -190,11 +211,12 @@ enum ProgramInstruction {
     // 2: rent sysvar
     // 3: clock sysvar
     // 4: etag
-    // 5: handles -> wallets
-    // 6: wallets -> userdatas
+    // 5: wallets -> userdatas
+    // 7: wallet userdata address
     // 7: fresh post address
     CreatePost {
         title: String,
+        uri: Uri,
         text: String,
     },
 }
@@ -207,6 +229,7 @@ impl ProgramInstruction {
     }
 }
 
+// set up a new program derived account from a given seed
 fn alloc_account(
     accounts: &[AccountInfo],
     program_id: &Pubkey,
@@ -229,6 +252,17 @@ fn alloc_account(
 
     msg!("allocating {}", addr);
     invoke_signed(&ix, accounts, seed)
+}
+
+// we store a u64 in its own account and increment it every time we modify storage
+// so downstream can just check the etag before pulling datas
+fn increment_etag(acct: &AccountInfo) -> ProgramResult {
+    let mut etag = acct.try_borrow_mut_data()?;
+    let mut dst = [0; 8];
+    dst.clone_from_slice(&etag[0..8]);
+    etag[0..8].copy_from_slice(&(u64::from_be_bytes(dst) + 1).to_be_bytes());
+
+    Ok(())
 }
 
 // set up base data structures
@@ -288,18 +322,19 @@ fn create_user(
     // XXX is there a way to return non shit errors?
     // check if handle is already taken
     if user_wallets.0.contains_key(handle) {
+        msg!("handle already taken");
         return Err(ProgramError::InvalidArgument);
     }
 
     // check if user already has an account set up
     if wallet_users.0.contains_key(payer.key) {
+        msg!("user account exist");
         return Err(ProgramError::AccountAlreadyInitialized);
     }
 
     // XXX idk how big to make this but it ought to be reallocable
     // allocate provided address for userdata
-    let size = 0x1000;
-    let rent = rentier.minimum_balance(size as usize);
+    let rent = rentier.minimum_balance(USERDATA_INITIAL_SIZE);
     let ix = create_account(payer.key, userdata_acct.key, rent, 0x1000, program_id);
     invoke(&ix, accounts)?;
 
@@ -316,10 +351,79 @@ fn create_user(
     wallet_users.store(&wallet_users_acct)?;
 
     // update etag and return
-    let mut etag = etag_acct.try_borrow_mut_data()?;
-    let mut dst = [0; 8];
-    dst.clone_from_slice(&etag[0..8]);
-    etag[0..8].copy_from_slice(&(u64::from_be_bytes(dst) + 1).to_be_bytes());
+    increment_etag(&etag_acct);
+
+    Ok(())
+}
+
+// create a new post
+fn create_post(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+    title: &str,
+    uri: &Uri,
+    text: &str,
+) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+
+    msg!("HANA 1");
+    sol_log_compute_units();
+    let payer = next_account_info(account_info_iter)?;
+    let sys = next_account_info(account_info_iter)?;
+    let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    let clock = &Clock::from_account_info(next_account_info(account_info_iter)?)?;
+    let etag_acct = next_account_info(account_info_iter)?;
+    let wallet_users_acct = next_account_info(account_info_iter)?;
+    let userdata_acct = next_account_info(account_info_iter)?;
+    let post_acct = next_account_info(account_info_iter)?;
+
+    msg!("HANA 2");
+    sol_log_compute_units();
+    let wallet_users = WalletUserdata::load(wallet_users_acct)?;
+    let mut userdata = Userdata::load(userdata_acct)?;
+
+    // FIXME really we shouldnt require user setup, handle is just for discovery/kawaii factor
+    // wallet key is enuf. i need to separate post registry from userdata tho
+    if !wallet_users.0.contains_key(payer.key) {
+        msg!("userdata doesnt exist");
+        return Err(ProgramError::UninitializedAccount);
+    }
+
+    // make sure we have the correct userdata
+    // remeber wallet_users is just a key to key mapping
+    if wallet_users.0.get(payer.key).unwrap() != userdata_acct.key {
+        msg!("userdata doesnt match");
+        return Err(ProgramError::InvalidAccountData);
+    }
+
+    msg!("HANA 3");
+    sol_log_compute_units();
+    // first just store the post
+    // TODO support and validate markdown
+    let text_bytes = text.as_bytes();
+    let post_len = text_bytes.len();
+    let rent = rentier.minimum_balance(post_len);
+    let ix = create_account(payer.key, post_acct.key, rent, post_len as u64, program_id);
+    invoke(&ix, accounts)?;
+
+    msg!("HANA 4");
+    sol_log_compute_units();
+    let mut post_buf = post_acct.try_borrow_mut_data()?;
+    post_buf[0..post_len].copy_from_slice(text_bytes);
+
+    msg!("HANA 5");
+    sol_log_compute_units();
+    // now store post data. presently it goes in userdata so nbd
+    let ts = clock.unix_timestamp;
+    let postdata = Postdata::new(payer.key, title, uri, ts, post_acct.key);
+    msg!("HANA 6");
+    sol_log_compute_units();
+    userdata.posts.push(postdata);
+    msg!("HANA 7");
+    sol_log_compute_units();
+    userdata.store(userdata_acct);
+    msg!("HANA 8");
+    sol_log_compute_units();
 
     Ok(())
 }
@@ -330,12 +434,16 @@ fn dispatch(
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
+    msg!("HANA 0");
+    sol_log_compute_units();
     let insn = ProgramInstruction::unpack(instruction_data)?;
     msg!("HANA insn: {:?}", insn);
+    sol_log_compute_units();
 
     match insn {
         ProgramInstruction::Initialize => initialize_program(accounts, program_id),
         ProgramInstruction::CreateUser{handle, display} => create_user(accounts, program_id, &handle, &display),
+        ProgramInstruction::CreatePost{title, uri, text} => create_post(accounts, program_id, &title, &uri, &text),
         _ => panic!("fix me"),
     }
 }

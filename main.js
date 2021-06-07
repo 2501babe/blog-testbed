@@ -16,11 +16,15 @@ const COMMITMENT = "processed";
 const SKIP_PREFLIGHT = true;
 
 const handle_regex = /^[a-zA-Z0-9][a-zA-Z0-9_]{0,23}$/;
+const uri_regex = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 // debauched solweb3 devs use an async sha256 so these cant be toplevel constants
 var etagAddr;
 var handleWalletAddr;
 var walletUserdataAddr;
+
+// ok this one im just lazy
+var userdataAddr;
 
 // basic program shit
 const main = {
@@ -103,7 +107,7 @@ const post = {
             return;
         }
 
-        let data = Buffer.from(`{"CreateUser": {"handle": "${handle}", "display": "${display}"}}`, "utf8");
+        let data = Buffer.from(JSON.stringify({CreateUser: {handle: handle, display: display}}));
         let userAccount = new w3.Account();
 
         let keys = [
@@ -133,6 +137,49 @@ const post = {
         );
 
         console.log("create user res:", res);
+        userdataAddr = userAccount.publicKey;
+        return res;
+    },
+
+    // {"CreatePost": {"title": STRING, "uri": STRING, "text": STRING}}
+    createPost: async (conn, wallet, title, uri, text) => {
+        if(!uri.match(uri_regex)) {
+            console.log("bad uri:", uri);
+            return;
+        }
+
+        let data = Buffer.from(JSON.stringify({CreatePost: {title: title, uri: uri, text: text}}));
+        let postAccount = new w3.Account();
+        console.log("data:", JSON.stringify({CreatePost: {title: title, uri: uri, text: text}}));
+        console.log("post acct:", postAccount.publicKey.toString());
+
+        let keys = [
+            {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
+            {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: etagAddr, isSigner: false, isWritable: true},
+            {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
+            {pubkey: userdataAddr, isSigner: false, isWritable: true},
+            {pubkey: postAccount.publicKey, isSigner: true, isWritable: true},
+        ];
+
+        let ixn = new w3.TransactionInstruction({
+            keys: keys,
+            programId: PROGRAM_ID,
+            data: data,
+        });
+
+        let txn = new w3.Transaction().add(ixn);
+
+        let res = await w3.sendAndConfirmTransaction(
+            conn,
+            txn,
+            [wallet, postAccount],
+            {commitment: "processed", preflightCommitment: "processed", skipPreflight: SKIP_PREFLIGHT},
+        );
+
+        console.log("create post res:", res);
         return res;
     },
 
@@ -156,16 +203,19 @@ const post = {
     let walletUsers = await get.struct(conn, walletUserdataAddr);
 
     // get userdata if it exists
-    let userdataAddr = walletUsers[wallet.publicKey.toString()];
+    userdataAddr = walletUsers[wallet.publicKey.toString()];
     //console.log("userdataaddr:", new w3.PublicKey(userdataAddr).toString());
     let user = userdataAddr ? await get.struct(conn, new w3.PublicKey(userdataAddr)) : null;
     //console.log("user:", user);
 
-    //console.log("initializing chain storage");
-    //await post.initialize(conn, wallet);
+    console.log("initializing chain storage");
+    await post.initialize(conn, wallet);
 
     console.log("creating user");
-    await post.createUser(conn, wallet, "not_hana");
+    await post.createUser(conn, wallet, "not_hana", "who could this be");
+
+    console.log("creating post");
+    await post.createPost(conn, wallet, "top 100 sweets i like", "top-100-sweets", "ummmm cookie dough and dark chocolate and cake and...\n\neclairs and cannolis and donuts and muffins andddd\n\nok im tired now ima take a nap");
 
     return 0;
 })();
