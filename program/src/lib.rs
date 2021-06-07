@@ -70,8 +70,10 @@ impl PartialEq for Handle {
     }
 }
 
+#[serde_as]
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Userdata {
+    #[serde_as(as = "DisplayFromStr")]
     wallet: Pubkey,
     handle: Handle,
     display: String,
