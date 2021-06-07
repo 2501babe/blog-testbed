@@ -21,23 +21,29 @@
 
   <div v-if="providerConnected" class="funbox">
     <!-- nav and shit, idk what goes here yet -->
-    <div class="sidebar">
+    <div class="sidebar left">
       <a>home</a>
       <a>idk</a>
       <a>something</a>
     </div>
 
     <!-- main window ig just let ppl post here. maybe nav switches this area exclusively -->
-    <div class="zone">
+    <div class="zone center">
       <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
       <br/>
       <button>put it on the internet forever</button>
     </div>
 
     <!-- info for the logged in user plus their posts -->
-    <div class="sidebar">
+    <div class="sidebar right">
       <div v-if="userdata">
-        display user here
+        <!-- handle, disply name, etc -->
+        <div>
+          <div style="font-size:1.5em">{{ userdata.display }}</div>
+          <div style="opacity:50%">~{{ userdata.handle }}</div>
+        </div>
+
+        <!-- TODO posts -->
       </div>
       <div v-else>
         <table>
@@ -136,12 +142,20 @@ export default {
   },
   watch: {
     // reconnect and force refresh our data when network changes
-    selectedNetwork(prev, curr) {
+    selectedNetwork(curr, prev) {
         let vm = this;
 
         if(prev != curr) {
             vm.connectChain();
             vm.loadData(true);
+        }
+    },
+    async walletAddress() {
+        let vm = this;
+
+        let userdata_addr = vm.walletAddress && vm.walletUserdata[vm.walletAddress];
+        if(userdata_addr) {
+            vm.userdata = await vm.getStruct(new w3.PublicKey(userdata_addr));
         }
     },
   },
@@ -195,10 +209,17 @@ export default {
 
         let etag = await vm.getEtag((await ETAG_PROMISE)[0]);
 
+        // if forced or data has changed or we havent fetched yet
         if(force || etag != vm.etag || etag == 0) {
             vm.handleWallets = await vm.getStruct((await USRWAL_PROMISE)[0]);
             vm.walletUserdata = await vm.getStruct((await WALUSR_PROMISE)[0]);
             vm.etag = etag;
+
+            // load userdata also if we have a user
+            let userdata_addr = vm.walletAddress && vm.walletUserdata[vm.walletAddress];
+            if(userdata_addr) {
+                vm.userdata = await vm.getStruct(new w3.PublicKey(userdata_addr));
+            }
         }
     },
 
@@ -211,7 +232,7 @@ export default {
     async getEtag(addr) {
         let vm = this;
 
-        let acct = await vm.connection.getAccountInfo(addr);
+        let acct = await vm.connection.getAccountInfo(addr, COMMITMENT);
         let dv = acct && new DataView(acct.data.buffer);
         return dv ? dv.getUint32(4) : 0;
     },
@@ -219,7 +240,7 @@ export default {
     async getStruct(addr) {
         let vm = this;
 
-        let acct = await vm.connection.getAccountInfo(addr);
+        let acct = await vm.connection.getAccountInfo(addr, COMMITMENT);
         let str = acct ? acct.data.toString().split("\0").shift() : "";
         return str.length > 0 ? JSON.parse(str) : {};
     },
