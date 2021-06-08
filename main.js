@@ -148,29 +148,35 @@ const post = {
             return;
         }
 
-        let data = Buffer.from(JSON.stringify({CreatePost: {title: title, uri: uri, text: text}}));
-        let postAccount = new w3.Account();
-        console.log("data:", JSON.stringify({CreatePost: {title: title, uri: uri, text: text}}));
-        console.log("post acct:", postAccount.publicKey.toString());
+        let buf1 = Buffer.from(JSON.stringify({CreatePostdata: {title: title, uri: uri}}));
+        let buf2 = Buffer.from(JSON.stringify({CreatePost: {text: text}}));
 
-        let keys = [
+        let postAccount = new w3.Account();
+
+        let sharedKeys = [
             {pubkey: wallet.publicKey, isSigner: true, isWritable: true},
             {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
             {pubkey: etagAddr, isSigner: false, isWritable: true},
-            {pubkey: walletUserdataAddr, isSigner: false, isWritable: true},
-            {pubkey: userdataAddr, isSigner: false, isWritable: true},
-            {pubkey: postAccount.publicKey, isSigner: true, isWritable: true},
         ];
+        let udKey = {pubkey: userdataAddr, isSigner: false, isWritable: true};
+        let postKey = {pubkey: postAccount.publicKey, isSigner: true, isWritable: true};
 
-        let ixn = new w3.TransactionInstruction({
-            keys: keys,
+        console.log("HANA userdata addr:", userdataAddr.toString());
+
+        let ixn1 = new w3.TransactionInstruction({
+            keys: sharedKeys.concat([udKey, postKey]),
             programId: PROGRAM_ID,
-            data: data,
+            data: buf1,
+        });
+        let ixn2 = new w3.TransactionInstruction({
+            keys: sharedKeys.concat([postKey]),
+            programId: PROGRAM_ID,
+            data: buf2,
         });
 
-        let txn = new w3.Transaction().add(ixn);
+        let txn = new w3.Transaction().add(ixn1).add(ixn2);
 
         let res = await w3.sendAndConfirmTransaction(
             conn,

@@ -13,8 +13,8 @@ const V5NAMESPACE: &Uuid = &Uuid::from_bytes([16, 92, 30, 120, 224, 152, 10, 207
 const ETAG_SEED: &[u8] = "ETAG".as_bytes();
 const HANDLE_WALLETS_SEED: &[u8] = "HANDLE_WALLETS".as_bytes();
 const WALLET_USERDATA_SEED: &[u8] = "WALLET_USERDATA".as_bytes();
-const HASHMAP_INITIAL_SIZE: u64 = 0x200;
-const USERDATA_INITIAL_SIZE: usize = 0x100;
+const HASHMAP_INITIAL_SIZE: u64 = 0x800;
+const USERDATA_INITIAL_SIZE: u64 = 0x800;
 const HANDLE_MAX_LEN: u64 = 24;
 
 #[serde_as]
@@ -136,7 +136,7 @@ impl LoadStoreAccount for Postdata {}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct PostId(Uuid);
 impl PostId {
-    // this is probably "good enough" but I could hash the post text to be sure
+    // this is probably "good enough"
     fn new(wallet: &Pubkey, title: &str, ts: UnixTimestamp) -> Self {
         let wab = &wallet.to_bytes();
         let tib = title.as_bytes();
@@ -205,18 +205,27 @@ enum ProgramInstruction {
         display: String,
     },
 
-    // create a new post
+    // create new postdata
     // 0: wallet
     // 1: system program
     // 2: rent sysvar
     // 3: clock sysvar
     // 4: etag
-    // 5: wallets -> userdatas
-    // 7: wallet userdata address
-    // 7: fresh post address
-    CreatePost {
+    // 5: wallet userdata address
+    // 6: filled  post address
+    CreatePostdata {
         title: String,
         uri: Uri,
+    },
+
+    // create new post
+    // 0: wallet
+    // 1: system program
+    // 2: rent sysvar
+    // 3: clock sysvar
+    // 4: etag
+    // 5: fresh post address
+    CreatePost {
         text: String,
     },
 }
@@ -334,8 +343,8 @@ fn create_user(
 
     // XXX idk how big to make this but it ought to be reallocable
     // allocate provided address for userdata
-    let rent = rentier.minimum_balance(USERDATA_INITIAL_SIZE);
-    let ix = create_account(payer.key, userdata_acct.key, rent, 0x1000, program_id);
+    let rent = rentier.minimum_balance(USERDATA_INITIAL_SIZE as usize);
+    let ix = create_account(payer.key, userdata_acct.key, rent, USERDATA_INITIAL_SIZE, program_id);
     invoke(&ix, accounts)?;
 
     // build userdata and store in account
@@ -356,49 +365,59 @@ fn create_user(
     Ok(())
 }
 
-// create a new post
-fn create_post(
+// create postdata for a post, i split this in two for dumb compute budget
+// FIXME this is not a working solution this is just a proof of concept LOL
+// as i have discovered today...
+// * the 200k solana compute budget is TINY so complex operations must be broken up
+// * solana transactions also have a 1232 byte size limit
+// this means we need a way for the client to incrementally upload data
+// it also means i cannot scalably use hashmaps stored in accounts
+// and i need to get clever with derived addresses instead
+fn create_postdata(
     accounts: &[AccountInfo],
     program_id: &Pubkey,
     title: &str,
     uri: &Uri,
-    text: &str,
 ) -> ProgramResult {
     let account_info_iter = &mut accounts.iter();
 
-    msg!("HANA 1");
-    sol_log_compute_units();
     let payer = next_account_info(account_info_iter)?;
     let sys = next_account_info(account_info_iter)?;
     let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
     let clock = &Clock::from_account_info(next_account_info(account_info_iter)?)?;
     let etag_acct = next_account_info(account_info_iter)?;
-    let wallet_users_acct = next_account_info(account_info_iter)?;
     let userdata_acct = next_account_info(account_info_iter)?;
     let post_acct = next_account_info(account_info_iter)?;
 
-    msg!("HANA 2");
-    sol_log_compute_units();
-    let wallet_users = WalletUserdata::load(wallet_users_acct)?;
+    // FIXME checking that userdata is in wallet_users is too expensive
+    // this should be a derived address
     let mut userdata = Userdata::load(userdata_acct)?;
 
-    // FIXME really we shouldnt require user setup, handle is just for discovery/kawaii factor
-    // wallet key is enuf. i need to separate post registry from userdata tho
-    if !wallet_users.0.contains_key(payer.key) {
-        msg!("userdata doesnt exist");
-        return Err(ProgramError::UninitializedAccount);
-    }
+    // now store post data. presently it goes in userdata so nbd
+    let ts = clock.unix_timestamp;
+    let postdata = Postdata::new(payer.key, title, uri, ts, post_acct.key);
+    userdata.posts.push(postdata);
+    userdata.store(userdata_acct);
 
-    // make sure we have the correct userdata
-    // remeber wallet_users is just a key to key mapping
-    if wallet_users.0.get(payer.key).unwrap() != userdata_acct.key {
-        msg!("userdata doesnt match");
-        return Err(ProgramError::InvalidAccountData);
-    }
+    increment_etag(&etag_acct);
 
-    msg!("HANA 3");
-    sol_log_compute_units();
-    // first just store the post
+    Ok(())
+}
+
+fn create_post(
+    accounts: &[AccountInfo],
+    program_id: &Pubkey,
+    text: &str,
+) -> ProgramResult {
+    let account_info_iter = &mut accounts.iter();
+
+    let payer = next_account_info(account_info_iter)?;
+    let sys = next_account_info(account_info_iter)?;
+    let rentier = &Rent::from_account_info(next_account_info(account_info_iter)?)?;
+    let clock = &Clock::from_account_info(next_account_info(account_info_iter)?)?;
+    let etag_acct = next_account_info(account_info_iter)?;
+    let post_acct = next_account_info(account_info_iter)?;
+
     // TODO support and validate markdown
     let text_bytes = text.as_bytes();
     let post_len = text_bytes.len();
@@ -406,24 +425,8 @@ fn create_post(
     let ix = create_account(payer.key, post_acct.key, rent, post_len as u64, program_id);
     invoke(&ix, accounts)?;
 
-    msg!("HANA 4");
-    sol_log_compute_units();
     let mut post_buf = post_acct.try_borrow_mut_data()?;
     post_buf[0..post_len].copy_from_slice(text_bytes);
-
-    msg!("HANA 5");
-    sol_log_compute_units();
-    // now store post data. presently it goes in userdata so nbd
-    let ts = clock.unix_timestamp;
-    let postdata = Postdata::new(payer.key, title, uri, ts, post_acct.key);
-    msg!("HANA 6");
-    sol_log_compute_units();
-    userdata.posts.push(postdata);
-    msg!("HANA 7");
-    sol_log_compute_units();
-    userdata.store(userdata_acct);
-    msg!("HANA 8");
-    sol_log_compute_units();
 
     Ok(())
 }
@@ -434,16 +437,13 @@ fn dispatch(
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    msg!("HANA 0");
-    sol_log_compute_units();
     let insn = ProgramInstruction::unpack(instruction_data)?;
-    msg!("HANA insn: {:?}", insn);
-    sol_log_compute_units();
 
     match insn {
         ProgramInstruction::Initialize => initialize_program(accounts, program_id),
         ProgramInstruction::CreateUser{handle, display} => create_user(accounts, program_id, &handle, &display),
-        ProgramInstruction::CreatePost{title, uri, text} => create_post(accounts, program_id, &title, &uri, &text),
+        ProgramInstruction::CreatePostdata{title, uri} => create_postdata(accounts, program_id, &title, &uri),
+        ProgramInstruction::CreatePost{text} => create_post(accounts, program_id, &text),
         _ => panic!("fix me"),
     }
 }
