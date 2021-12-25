@@ -29,9 +29,13 @@
 
     <!-- main window ig just let ppl post here. maybe nav switches this area exclusively -->
     <div class="zone center">
-      <textarea cols="100" rows="20" placeholder="you better write something good loser"/>
+      <input v-model="createPostForm.title" placeholder="title"/>
       <br/>
-      <button>put it on the internet forever</button>
+      <input v-model="createPostForm.uri" placeholder="uri"/>
+      <br/>
+      <textarea v-model="createPostForm.text" cols="100" rows="20" placeholder="you better write something good"/>
+      <br/>
+      <button @click="createPost()">put it on the internet forever</button>
     </div>
 
     <!-- info for the logged in user plus their posts -->
@@ -48,12 +52,12 @@
       <div v-else>
         <table>
           <tr>
-            <td align="right">handle</td>
-            <td align="left"><input v-model="createUserForm.handle"/></td>
-          </tr>
-          <tr>
             <td align="right">display name</td>
             <td align="left"><input v-model="createUserForm.display"/></td>
+          </tr>
+          <tr>
+            <td align="right">handle</td>
+            <td align="left"><input v-model="createUserForm.handle"/></td>
           </tr>
         </table>
         <div @click="createUser()" class="center"><button>register</button></div>
@@ -83,6 +87,7 @@ const COMMITMENT = "processed";
 const SKIP_PREFLIGHT = false;
 
 const HANDLE_REGEX = /^[a-zA-Z][a-zA-Z0-9_]{0,23}$/;
+const URI_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const DISPLAY_LENGTH = 32;
 
 const NETWORKS = {
@@ -138,6 +143,7 @@ export default {
       //input form data zone
       // XXX this shit should def be a separate component lol
       createUserForm: {handle: "", display: ""},
+      createPostForm: {title: "", uru: "", text: ""},
     }
   },
   watch: {
@@ -308,6 +314,33 @@ export default {
         await vm.loadData();
 
         return signature;
+    },
+    async createPost() {
+        let vm = this;
+        let form = vm.createUserForm;
+
+        if(!form.uri.match(URI_REGEX)) {
+            console.log("bad uri:", uri);
+            return;
+        }
+
+        let buf1 = Buffer.from(JSON.stringify({CreatePostdata: {title: title, uri: uri}}));
+        let buf2 = Buffer.from(JSON.stringify({CreatePost: {text: text}}));
+        let postAccount = new w3.Account();
+        let etagKey = (await ETAG_PROMISE)[0];
+        let userdataAddr = vm.walletAddress && vm.walletUserdata[vm.walletAddress];
+
+        let sharedKeys = [
+            {pubkey: vm.provider.publicKey, isSigner: true, isWritable: true},
+            {pubkey: w3.SystemProgram.programId, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: w3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false},
+            {pubkey: etagKey, isSigner: false, isWritable: true},
+        ];
+        let udKey = {pubkey: new w3.PublicKey(userdataAddr), isSigner: false, isWritable: true};
+        let postKey = {pubkey: postAccount.publicKey, isSigner: true, isWritable: true};
+
+        // XXX TODO FIXME uhh take the rest of the stuff from main in here
     },
   }
 }

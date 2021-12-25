@@ -89,6 +89,15 @@ import Main from "./components/Main.vue";
 // * watcher to fill userdata from hashmap
 // * create post impl
 
+// XXX OKI DEADLINE IS TODAY
+// what are mu must haves
+// * store th epost make th postdata
+// * list posts on the right bar
+// * click a post to have it come up in the center
+// NICE TO HAVES
+// * new post, discovery page links on the left bar
+// * discovery page listing others users posts
+
 export default {
   name: 'App',
   components: {
